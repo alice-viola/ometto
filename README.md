@@ -2,6 +2,8 @@
 
 A route planner for **Trentino-Alto Adige**, live at **[omettomaps.com](https://omettomaps.com)**.
 
+![Trento to Monte Calisio: typed, computed by car, then on foot at grade E with three alternatives](.github/demo.gif)
+
 The region's roads, paths, cycleways and lifts are held in memory — 443k junctions, 545k
 stretches, every one of them with an elevation — and searched for five kinds of trip: car,
 bike, hike, car+hike and bike+hike. Trails carry the SAT grades **T / E / EE / EEA**, with an
