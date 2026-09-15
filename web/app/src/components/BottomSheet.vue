@@ -1,7 +1,17 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
+import Icon from './Icon.vue';
 import { answeredToken, hasResult } from '../composables/usePlanner';
-import { sheetDragging, sheetHeight, sheetSettled } from '../composables/useMedia';
+import { sheetDragging, sheetHeight, sheetSettled, topInset } from '../composables/useMedia';
+
+/**
+ * The stops, from the bottom up. `peek` shows whatever the sheet is for — the
+ * headline of an answer, or a pair of fields — and no more of the map than
+ * that. `closed`, when the parent gives it a height, is a strip no taller than
+ * the handle: the whole map, with one line of answer along its bottom edge,
+ * for anyone who came for the map.
+ */
+const props = withDefaults(defineProps<{ peek?: number; closed?: number }>(), { peek: 232, closed: 0 });
 
 /**
  * The sheet is sized to the *visible* viewport, not the layout one. On iOS the
@@ -15,10 +25,10 @@ const vv = typeof window !== 'undefined' ? window.visualViewport : null;
 const vh = ref(800);
 /** How far the visible bottom edge sits above the layout viewport's bottom. */
 const lift = ref(0);
+/** The home indicator's band: every stop keeps its content above it. */
+const sab = ref(0);
 
-/** Enough for the start and destination fields, and no more of the map than that. */
-const PEEK = 232;
-const height = ref(PEEK);
+const height = ref(props.peek);
 const dragging = ref(false);
 /**
  * The stop the sheet last settled on, so a keyboard or a rotation puts it back
@@ -26,43 +36,60 @@ const dragging = ref(false);
  * move with the viewport, and on a phone the viewport is still settling while
  * the first answer lands.
  */
-type Stop = 'peek' | 'rest' | 'top';
-let restAt: Stop | null = 'peek';
+type Stop = 'closed' | 'peek' | 'rest' | 'top';
+const restAt = ref<Stop | null>('peek');
+/** The drag under way began on the closed strip: the strip stays until it ends. */
+const fromClosed = ref(false);
 const root = ref<HTMLElement | null>(null);
 
-const snaps = computed(() => {
+type Snap = { name: Stop; h: number };
+const snaps = computed<Snap[]>(() => {
   const h = vh.value;
-  const stops = [Math.min(PEEK, Math.round(h * 0.42)), Math.round(h * 0.52), Math.round(h - 72)];
-  // A phone on its side has no room for three stops: keep the ones that are apart.
-  const out: number[] = [];
-  for (const s of stops) if (!out.length || s - out[out.length - 1] >= 40) out.push(s);
+  const all: Snap[] = [];
+  if (props.closed > 0) all.push({ name: 'closed', h: props.closed + sab.value });
+  all.push({ name: 'peek', h: Math.min(props.peek + sab.value, Math.round(h * 0.42)) });
+  all.push({ name: 'rest', h: Math.round(h * 0.52) });
+  // The top stop leaves the floating search card readable above the sheet.
+  all.push({ name: 'top', h: Math.round(h - Math.max(72, topInset.value + 8)) });
+  // A phone on its side has no room for four stops: keep the ones that are
+  // apart, and of two that are not, the one the sheet cannot do without.
+  const out: Snap[] = [];
+  for (const s of all) {
+    const last = out[out.length - 1];
+    if (last && s.h - last.h < 40) {
+      if (s.name === 'rest') continue;
+      out.pop();
+    }
+    out.push(s);
+  }
   return out;
 });
-const peek = computed(() => snaps.value[0]);
 const top = computed(() => snaps.value.length - 1);
-/** The stop that shows an answer beside the map: half, or the peek where there is no half. */
-const rest = computed(() => (snaps.value.length === 3 ? 1 : 0));
-const atPeek = computed(() => height.value <= peek.value + 1);
 
 function indexOf(stop: Stop): number {
-  return stop === 'peek' ? 0 : stop === 'top' ? top.value : rest.value;
+  const i = snaps.value.findIndex((s) => s.name === stop);
+  if (i >= 0) return i;
+  // A stop the viewport had no room for: the nearest one that is there.
+  return stop === 'top' ? top.value : stop === 'rest' ? indexOf('peek') : 0;
 }
 
-function stopAt(i: number): Stop {
-  return i <= 0 ? 'peek' : i >= top.value ? 'top' : 'rest';
-}
+const stopAt = (i: number): Stop => snaps.value[Math.max(0, Math.min(top.value, i))].name;
+const peekH = computed(() => snaps.value[indexOf('peek')].h);
+/** At the peek or folded below it: nothing under the finger can scroll. */
+const atPeek = computed(() => height.value <= peekH.value + 1);
+const closedNow = computed(() => restAt.value === 'closed' || (dragging.value && fromClosed.value));
 
 function nearest(h: number): number {
   let best = 0;
   snaps.value.forEach((s, i) => {
-    if (Math.abs(s - h) < Math.abs(snaps.value[best] - h)) best = i;
+    if (Math.abs(s.h - h) < Math.abs(snaps.value[best].h - h)) best = i;
   });
   return best;
 }
 
 function snapTo(stop: Stop) {
-  restAt = stop;
-  height.value = snaps.value[indexOf(stop)];
+  restAt.value = stop;
+  height.value = snaps.value[indexOf(stop)].h;
 }
 
 const unzoomed = () => !vv || Math.abs(vv.scale - 1) < 0.01;
@@ -71,10 +98,14 @@ function measure() {
   const follow = !!vv && unzoomed();
   vh.value = Math.round(follow ? vv!.height : window.innerHeight);
   lift.value = follow ? Math.max(0, Math.round(window.innerHeight - vv!.height - vv!.offsetTop)) : 0;
-  if (dragging.value) return;
-  if (restAt !== null) height.value = snaps.value[indexOf(restAt)];
-  else height.value = Math.min(height.value, snaps.value[top.value]);
+  if (root.value) sab.value = parseFloat(getComputedStyle(root.value).paddingBottom) || 0;
 }
+
+// The stops move with the viewport, with the search card and with what the
+// sheet holds: it stays on the stop it was resting on, never on a stale height.
+watch(snaps, () => {
+  if (!dragging.value && restAt.value !== null) height.value = snaps.value[indexOf(restAt.value)].h;
+});
 
 /** A press is not a drag until it has travelled this far, mostly vertically. */
 const SLOP = 8;
@@ -157,14 +188,17 @@ function onMove(e: PointerEvent) {
       return;
     }
     dragging.value = true;
-    restAt = null;
+    fromClosed.value = restAt.value === 'closed';
+    restAt.value = null;
     capture(e.pointerId);
   }
   const dt = e.timeStamp - press.lastT;
   if (dt > 0) press.vy = (e.clientY - press.lastY) / dt;
   press.lastY = e.clientY;
   press.lastT = e.timeStamp;
-  height.value = Math.min(snaps.value[top.value], Math.max(96, press.h - dy));
+  // Nothing below the strip; without a strip, a little give under the peek.
+  const floor = props.closed > 0 ? snaps.value[0].h : Math.min(96, snaps.value[0].h);
+  height.value = Math.min(snaps.value[top.value].h, Math.max(floor, press.h - dy));
 }
 
 function onUp(e: PointerEvent) {
@@ -178,21 +212,27 @@ function onUp(e: PointerEvent) {
   if (!p) return;
   if (!dragging.value) {
     // A tap on the handle is the whole gesture for anyone who would rather not
-    // drag: one step further open each time, and back to the peek from the top.
-    if (p.handle) snapTo(stopAt(nearest(height.value) >= top.value ? 0 : nearest(height.value) + 1));
+    // drag: one stop further open each time, and from the top back to the
+    // peek. Folding the sheet away is deliberate — a pull down, or the
+    // chevron — never a tap that missed.
+    if (p.handle) {
+      const i = nearest(height.value);
+      snapTo(i >= top.value ? 'peek' : stopAt(i + 1));
+    }
     return;
   }
   dragging.value = false;
+  fromClosed.value = false;
   // A flick goes where it points, even when the nearest stop is behind it.
   const h = height.value;
   let i = nearest(h);
   if (p.vy < -0.4) {
-    const above = snaps.value.findIndex((s) => s > h);
+    const above = snaps.value.findIndex((s) => s.h > h);
     i = above === -1 ? top.value : above;
   } else if (p.vy > 0.4) {
     let below = 0;
     snaps.value.forEach((s, k) => {
-      if (s < h) below = k;
+      if (s.h < h) below = k;
     });
     i = below;
   }
@@ -215,7 +255,10 @@ function onFocusIn(e: FocusEvent) {
   else if (atPeek.value) snapTo('rest');
 }
 
-function onBodyClick() {
+function onBodyClick(e: MouseEvent) {
+  // A press whose effect is on the map — moving a marker, dropping a via —
+  // has nothing to show in the sheet, and leaves it where it is.
+  if (e.target instanceof Element && e.target.closest('[data-sheet-stay]')) return;
   if (atPeek.value && !dragging.value) snapTo('rest');
 }
 
@@ -226,14 +269,15 @@ watch([height, lift], ([h, l]) => {
 });
 watch(dragging, (d) => (sheetDragging.value = d));
 
-// An answer is worth looking at beside the map: half height, whatever the
-// sheet was doing — it was full while the question was typed.
+// An answer is worth looking at beside the map: the headline at the peek,
+// with the route framed above it, whatever the sheet was doing.
 watch(answeredToken, () => {
-  if (hasResult.value) snapTo('rest');
+  if (hasResult.value) snapTo('peek');
 });
 
 onMounted(() => {
   measure();
+  height.value = snaps.value[indexOf('peek')].h;
   sheetHeight.value = height.value + lift.value;
   window.addEventListener('resize', measure);
   vv?.addEventListener('resize', measure);
@@ -243,6 +287,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', measure);
   vv?.removeEventListener('resize', measure);
   vv?.removeEventListener('scroll', measure);
+  // A sheet that is gone covers nothing: the map gets its band back.
+  sheetHeight.value = 0;
+  sheetSettled.value++;
 });
 </script>
 
@@ -254,6 +301,7 @@ onBeforeUnmount(() => {
     :style="{
       height: `${height}px`,
       bottom: `${lift}px`,
+      paddingBottom: 'env(safe-area-inset-bottom, 0px)',
       boxShadow: 'var(--shadow-2)',
       transition: dragging ? 'none' : 'height 0.26s cubic-bezier(0.22, 1, 0.36, 1), bottom 0.2s ease',
     }"
@@ -262,18 +310,38 @@ onBeforeUnmount(() => {
     @pointerup="onUp"
     @pointercancel="onUp"
   >
-    <!-- 44 px of target for a thumb, with the bar itself unchanged. -->
+    <!-- 44 px of target for a thumb, with the bar itself unchanged. Folded to
+         the strip, the same row carries the one line that says what the
+         sheet holds. -->
     <div
       data-sheet-handle
-      class="flex h-11 shrink-0 cursor-grab touch-none items-center justify-center active:cursor-grabbing"
+      class="relative flex h-11 shrink-0 cursor-grab touch-none flex-col items-center active:cursor-grabbing"
+      :class="closedNow ? 'justify-start pt-[7px]' : 'justify-center'"
       role="separator"
-      aria-label="Drag to resize the panel, or tap to open it further"
-      title="Drag, or tap to open further"
+      :aria-label="closedNow ? 'Tap or drag to open the details' : 'Drag to resize the panel, or tap to open it further'"
+      :title="closedNow ? 'Tap or drag to open' : 'Drag, or tap to open further'"
       tabindex="0"
       @keydown.up.prevent="step(1)"
       @keydown.down.prevent="step(-1)"
     >
-      <span class="h-1 w-9 rounded-full" :style="{ background: 'var(--line-strong)' }" />
+      <span class="h-1 w-9 shrink-0 rounded-full" :style="{ background: 'var(--line-strong)' }" />
+      <div
+        v-if="closedNow"
+        class="mt-1.5 flex max-w-full items-center gap-1.5 whitespace-nowrap px-4 text-[13.5px] leading-5"
+      >
+        <slot name="closed" />
+      </div>
+      <button
+        v-if="closed > 0 && !closedNow"
+        type="button"
+        class="fold"
+        aria-label="Hide the details"
+        title="Hide the details"
+        @pointerdown.stop
+        @click.stop="snapTo('closed')"
+      >
+        <Icon name="chevronDown" :size="18" />
+      </button>
     </div>
     <!--
       The panel header doubles as a handle — `touch-action: none` there keeps
@@ -290,3 +358,21 @@ onBeforeUnmount(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.fold {
+  position: absolute;
+  top: 0;
+  right: 6px;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: var(--radius-control);
+  color: var(--muted);
+}
+.fold:active {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+</style>

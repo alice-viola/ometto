@@ -10,6 +10,7 @@ import {
   addContours,
   addDem,
   addHillshade,
+  addCrags,
   addLifts,
   addPois,
   addRegion,
@@ -24,9 +25,19 @@ import {
 import { markerElement } from '../map/markers';
 import { makeFallbackImage } from '../map/icons';
 import { api } from '../lib/api';
+import { cragDetail } from '../lib/format';
 import { available, layers } from '../composables/useLayers';
 import { isDark } from '../composables/useTheme';
-import { hasHover, isCompact, panelHidden, sheetDragging, sheetHeight, sheetSettled } from '../composables/useMedia';
+import {
+  frameRequest,
+  hasHover,
+  isCompact,
+  panelHidden,
+  sheetDragging,
+  sheetHeight,
+  sheetSettled,
+  topInset,
+} from '../composables/useMedia';
 import { hoverPoint } from '../composables/useHover';
 import {
   avoidedWays,
@@ -89,6 +100,12 @@ function grabAlong(lngLat: [number, number]): number | null {
 }
 
 function beginRouteDrag(m: MlMap, e: maplibregl.MapMouseEvent | maplibregl.MapTouchEvent) {
+  // A finger never reshapes the route. On a phone the first finger of a
+  // pinch, or a pan that happens to start on the line, landed here, took the
+  // gesture away from the map and dropped a via where the fingers parted — so
+  // zooming in on a route moved it. Touch bends a route through the tap
+  // popover ("Route via here"); the drag is a mouse gesture.
+  if ('touches' in e.originalEvent) return false;
   if (!selected.value || !m.getLayer(LYR.routeHit)) return false;
   const hits = m.queryRenderedFeatures(e.point, { layers: [LYR.routeHit] });
   if (!hits.length) return false;
@@ -168,8 +185,9 @@ let regionData: FeatureCollection | null = null;
 let satData: FeatureCollection | null = null;
 let poiData: FeatureCollection | null = null;
 let liftData: FeatureCollection | null = null;
+let cragData: FeatureCollection | null = null;
 
-type Overlay = 'region' | 'sat' | 'pois' | 'lifts';
+type Overlay = 'region' | 'sat' | 'pois' | 'lifts' | 'crags';
 const pending: Partial<Record<Overlay, Promise<FeatureCollection | null>>> = {};
 
 /** Fetched at most once each; the trail and summit sets are megabytes. */
@@ -180,7 +198,7 @@ function loadOverlay(name: Overlay): Promise<FeatureCollection | null> {
     .catch(() => null));
 }
 
-async function ensureOverlay(name: 'sat' | 'pois' | 'lifts'): Promise<void> {
+async function ensureOverlay(name: 'sat' | 'pois' | 'lifts' | 'crags'): Promise<void> {
   const fc = await loadOverlay(name);
   if (name === 'sat') {
     satData = fc;
@@ -188,6 +206,9 @@ async function ensureOverlay(name: 'sat' | 'pois' | 'lifts'): Promise<void> {
   } else if (name === 'pois') {
     poiData = fc;
     available.pois = !!fc;
+  } else if (name === 'crags') {
+    cragData = fc;
+    available.crags = !!fc;
   } else {
     liftData = fc;
     available.lifts = !!fc;
@@ -196,6 +217,7 @@ async function ensureOverlay(name: 'sat' | 'pois' | 'lifts'): Promise<void> {
   if (!m || !ready.value || !fc) return;
   if (name === 'sat') addSat(m, fc, tokens);
   else if (name === 'pois') addPois(m, fc, tokens);
+  else if (name === 'crags') addCrags(m, fc, tokens);
   else addLifts(m, fc, tokens);
   applyVisibility(m);
 }
@@ -209,8 +231,10 @@ function padding() {
   const el = host.value;
   const w = el?.clientWidth ?? window.innerWidth;
   const h = el?.clientHeight ?? window.innerHeight;
+  // On a phone the search card floats over the top of the map and the sheet
+  // over the bottom; the answer is framed in the band between them.
   const pad = isCompact.value
-    ? { top: 64, right: 60, bottom: sheetHeight.value + 36, left: 24 }
+    ? { top: topInset.value + 24, right: 24, bottom: sheetHeight.value + 36, left: 24 }
     : { top: 56, right: 56, bottom: 56, left: 56 };
   // fitBounds rejects padding that leaves no room: keep a viewport to aim at.
   // What is limited is the pair, not each side — the sheet alone may cover
@@ -244,6 +268,7 @@ function applyCustom(m: MlMap) {
   if (satData) addSat(m, satData, tokens);
   if (poiData) addPois(m, poiData, tokens);
   if (liftData) addLifts(m, liftData, tokens);
+  if (cragData) addCrags(m, cragData, tokens);
   addRouteLayers(m, tokens);
   applyVisibility(m);
   applyTerrain(m);
@@ -256,6 +281,7 @@ function applyCustom(m: MlMap) {
 function applyVisibility(m: MlMap) {
   setLayerVisible(m, [LYR.sat, LYR.satLabel], layers.sat && available.sat);
   setLayerVisible(m, [LYR.poi, LYR.poiPlace], layers.pois && available.pois);
+  setLayerVisible(m, [LYR.crag, LYR.cragSector], layers.crags && available.crags);
   setLayerVisible(m, [LYR.lifts, LYR.liftsLabel], layers.lifts && available.lifts);
   setLayerVisible(m, [LYR.contour, LYR.contourLabel], layers.contours);
 }
@@ -387,19 +413,34 @@ async function renameAfterDrag(index: number, lat: number, lon: number) {
   }
 }
 
+/**
+ * On a phone every frame is made top-down. fitBounds knows nothing of pitch:
+ * with the terrain's tilt on, the ground near the bottom edge is magnified
+ * and the answer spills under the sheet and the card, where the band between
+ * them is the whole point. The relief stays; the tilt comes back with two
+ * fingers, or the next time the terrain is turned on. The desktop keeps its
+ * tilt: its padding is even, and nothing floats over the map there.
+ */
+const flat = () => (isCompact.value ? { pitch: 0 } : {});
+
 function fitToResult() {
   const m = map.value;
   const route = selected.value;
   if (!m || !route) return;
   let b: Bounds | null = null;
   for (const r of routes.value) b = extendBounds(b, boundsOf(r.geometry.coordinates as Coord[]));
+  // The pins too: a destination kept 700 m from where the road ends is still
+  // part of the answer, and must not end up under the search card.
+  for (const s of slots.value) {
+    if (s.point) b = extendBounds(b, [s.point.lon, s.point.lat, s.point.lon, s.point.lat]);
+  }
   if (!b) return;
   m.fitBounds(
     [
       [b[0], b[1]],
       [b[2], b[3]],
     ],
-    { padding: padding(), duration: 700, maxZoom: 15 },
+    { padding: padding(), duration: 700, maxZoom: 15, ...flat() },
   );
 }
 
@@ -421,7 +462,7 @@ function fitToPoints(force = false) {
     (b[3] - b[1]) / Math.max(1e-9, view.getNorth() - view.getSouth()) > 0.28;
   if (!force && inside && fills) return;
   if (b[0] === b[2] && b[1] === b[3]) {
-    m.easeTo({ center: [b[0], b[1]], zoom: Math.max(m.getZoom(), 12), duration: 600 });
+    m.easeTo({ center: [b[0], b[1]], zoom: Math.max(m.getZoom(), 12), duration: 600, ...flat() });
     return;
   }
   m.fitBounds(
@@ -429,7 +470,7 @@ function fitToPoints(force = false) {
       [b[0], b[1]],
       [b[2], b[3]],
     ],
-    { padding: padding(), duration: 600, maxZoom: 14 },
+    { padding: padding(), duration: 600, maxZoom: 14, ...flat() },
   );
 }
 
@@ -446,7 +487,7 @@ function fitRegion() {
       [REGION_BOUNDS[0], REGION_BOUNDS[1]],
       [REGION_BOUNDS[2], REGION_BOUNDS[3]],
     ],
-    { padding: padding(), duration: 0 },
+    { padding: padding(), duration: 0, ...flat() },
   );
 }
 
@@ -470,7 +511,16 @@ function openViaPopover(index: number, lng: number, lat: number) {
  * first, then the base map's roads, paths and summits. The tiles are the only
  * place a road's name exists, so they are asked rather than guessed at.
  */
-const OUR_FEATURE_LAYERS = [LYR.avoided, LYR.avoidedHatch, LYR.lifts, LYR.sat, LYR.poi, LYR.poiPlace];
+const OUR_FEATURE_LAYERS = [
+  LYR.avoided,
+  LYR.avoidedHatch,
+  LYR.lifts,
+  LYR.sat,
+  LYR.poi,
+  LYR.poiPlace,
+  LYR.crag,
+  LYR.cragSector,
+];
 const BASE_SOURCE_LAYERS = ['transportation', 'transportation_name', 'poi', 'mountain_peak'];
 
 function featureAt(m: MlMap, point: maplibregl.Point) {
@@ -487,6 +537,11 @@ function featureAt(m: MlMap, point: maplibregl.Point) {
     const layer = first.layer.id;
     if (layer === LYR.avoided || layer === LYR.avoidedHatch) {
       return { name: String(p.name || 'that way'), kind: 'avoided', avoidedId: String(p.id ?? '') };
+    }
+    if (layer === LYR.crag || layer === LYR.cragSector) {
+      // A sector is named after its wall, as it is in the search results.
+      const own = String(p.name || 'Crag');
+      return { name: p.parent ? `${own} (${String(p.parent)})` : own, kind: 'crag', detail: cragDetail(p) };
     }
     const kind =
       layer === LYR.lifts ? 'lift' : layer === LYR.sat ? 'trail' : String(p.kind ?? 'place');
@@ -519,7 +574,9 @@ async function openPopover(lng: number, lat: number) {
     y: pt.y,
     name: hit?.name ?? '',
     loading: !hit,
-    ...(hit && hit.kind !== 'avoided' ? { feature: { name: hit.name, kind: hit.kind } } : {}),
+    ...(hit && hit.kind !== 'avoided'
+      ? { feature: { name: hit.name, kind: hit.kind, ...(hit.detail ? { detail: hit.detail } : {}) } }
+      : {}),
     ...(hit?.kind === 'avoided' ? { avoidedId: hit.avoidedId } : {}),
   };
   if (hit) return;
@@ -563,8 +620,9 @@ onMounted(async () => {
     pitchWithRotate: true,
   });
   map.value = m;
-  // A handle for checking the map from the console while developing.
-  if (import.meta.env.DEV) (window as unknown as { __map?: MlMap }).__map = m;
+  // A handle for checking the map from the console; harmless in production
+  // and the only way to measure a frame on a phone.
+  (window as unknown as { __map?: MlMap }).__map = m;
   m.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }), 'top-right');
   m.addControl(new maplibregl.ScaleControl({ maxWidth: 96, unit: 'metric' }), 'bottom-left');
   m.keyboard.enable();
@@ -620,6 +678,7 @@ onMounted(async () => {
   if (layers.sat) void ensureOverlay('sat');
   if (layers.pois) void ensureOverlay('pois');
   if (layers.lifts) void ensureOverlay('lifts');
+  if (layers.crags) void ensureOverlay('crags');
 });
 
 function onEscape(e: KeyboardEvent) {
@@ -666,6 +725,15 @@ function reframeAfterResize() {
 
 watch(isCompact, reframeAfterResize);
 watch(panelHidden, reframeAfterResize);
+
+// The phone's "show the whole route" button, and anything else that asks.
+watch(frameRequest, () => {
+  const m = map.value;
+  if (!m) return;
+  if (routes.value.length) fitToResult();
+  else if (slots.value.some((s) => s.point)) fitToPoints(true);
+  else fitRegion();
+});
 
 // Dragging the sheet changes how much map there is; put the answer back in it.
 watch(sheetSettled, () => {
@@ -731,7 +799,7 @@ watch(
   },
 );
 watch(
-  () => [layers.sat, layers.pois, layers.lifts, layers.contours],
+  () => [layers.sat, layers.pois, layers.lifts, layers.crags, layers.contours],
   () => {
     const m = map.value;
     if (m) applyVisibility(m);
@@ -739,6 +807,7 @@ watch(
     if (layers.sat && !satData) void ensureOverlay('sat');
     if (layers.pois && !poiData) void ensureOverlay('pois');
     if (layers.lifts && !liftData) void ensureOverlay('lifts');
+    if (layers.crags && !cragData) void ensureOverlay('crags');
     if (layers.contours && m && !m.getSource(SRC.contours)) {
       addContours(m, contourTiles, tokens, true);
       applyVisibility(m);

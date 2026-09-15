@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import MapCanvas from './components/MapCanvas.vue';
 import Panel from './components/Panel.vue';
-import BottomSheet from './components/BottomSheet.vue';
+import MobileShell from './components/mobile/MobileShell.vue';
 import Toast from './components/Toast.vue';
 import Icon from './components/Icon.vue';
 import Disclaimer from './components/Disclaimer.vue';
@@ -88,9 +88,9 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
       </main>
     </div>
 
-    <BottomSheet v-if="isCompact">
-      <Panel />
-    </BottomSheet>
+    <!-- A phone is not a narrow desktop: the map is the screen, the question
+         floats over its top and the answer rises from its bottom. -->
+    <MobileShell v-if="isCompact" />
 
     <div
       v-if="offline && !MOCK"

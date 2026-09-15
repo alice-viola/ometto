@@ -336,13 +336,16 @@
     transform: translateY(calc(-1 * var(--sheet-h, 0px)));
     transition: var(--sheet-transition, transform 0.26s cubic-bezier(0.22, 1, 0.36, 1));
   }
+  /* A phone has no zoom buttons: pinch is the gesture, and the top of the
+     map belongs to the search card. */
   .maplibregl-ctrl-top-left,
   .maplibregl-ctrl-top-right {
-    top: env(safe-area-inset-top, 0px);
+    display: none;
   }
-  .maplibregl-ctrl-group button {
-    width: 44px;
-    height: 44px;
+  /* Nor an attribution line over the map: every source is named, one tap
+     away, in the menu's About. The scale bar stays. */
+  .maplibregl-ctrl-attrib {
+    display: none;
   }
 }
 

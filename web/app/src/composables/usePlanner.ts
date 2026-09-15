@@ -13,6 +13,7 @@ import type {
 import { decodeQuery, replaceUrl, type SharedQuery } from '../lib/url';
 import { cumulative, nearestOnLine, round6, type Coord } from '../lib/geo';
 import { readLocalRaw, writeLocalRaw } from '../lib/storage';
+import { isCompact } from './useMedia';
 
 export interface Slot {
   key: string;
@@ -27,7 +28,12 @@ const newSlot = (point: Waypoint | null = null): Slot => ({ key: `s${++seq}`, po
 export const slots = ref<Slot[]>([newSlot(), newSlot()]);
 export const mode = ref<Mode>('car');
 export const grade = ref<Grade>('E');
-export const alternatives = ref<1 | 3>(1);
+/**
+ * One answer on a desktop, where the panel invites comparing on request; the
+ * three of them on a phone, where the choice is the point of the sheet and
+ * asking for it would be one more chip to find.
+ */
+export const alternatives = ref<1 | 3>(isCompact.value ? 3 : 1);
 /**
  * Whether the answer may ride a cable car. Off unless asked for: a lift turns
  * a day out into a different day out, and it only runs in season.
@@ -140,6 +146,15 @@ let inflight: AbortController | null = null;
 let debounceTimer: number | undefined;
 let suspended = false;
 
+/**
+ * Whether the page asks by itself. A desktop has a Compute button and asks
+ * when it is pressed; a phone has none, so there any change to a question
+ * that has no answer yet is asked the moment it is made. Set by the layout.
+ */
+export const autoAsk = ref(false);
+/** The question last sent, so a repeat of it is told from a change. */
+let asked = '';
+
 function currentQuery(): SharedQuery {
   return {
     points: filledPoints.value,
@@ -151,6 +166,8 @@ function currentQuery(): SharedQuery {
   };
 }
 
+const queryKey = (): string => JSON.stringify(currentQuery());
+
 /**
  * `silent` marks an automatic re-run: the map or the mode changed under an
  * answer that already exists. Those recompute, but they are not new questions,
@@ -158,6 +175,7 @@ function currentQuery(): SharedQuery {
  */
 export async function compute(silent = false): Promise<void> {
   if (!canCompute.value) return;
+  asked = queryKey();
   inflight?.abort();
   const ctrl = new AbortController();
   inflight = ctrl;
@@ -334,9 +352,19 @@ function noteHistory(best: RouteAlternative): void {
   historyToken.value++;
 }
 
-/** Any change to the query after a result re-runs it, quietly. */
+/**
+ * Any change to the query after a result re-runs it, quietly. Without a
+ * result there is nothing to keep current, and a desktop waits for Compute —
+ * but a page that asks by itself asks again as soon as the question has
+ * changed, so "no route" or an error is never the last word on a phone.
+ */
 function scheduleRecompute(): void {
-  if (suspended || !hasResult.value || !canCompute.value) return;
+  if (suspended || !canCompute.value) return;
+  if (!hasResult.value && !autoAsk.value) return;
+  // The question already on its way, or already answered, is not asked twice:
+  // a place picked on a phone is asked outright the moment it is set, and the
+  // watcher that sees the same change must not chase it with a quiet re-run.
+  if (queryKey() === asked) return;
   clearTimeout(debounceTimer);
   debounceTimer = window.setTimeout(() => void compute(true), 450);
 }
@@ -516,21 +544,27 @@ export function placeFromMap(point: Waypoint, where: 'start' | 'stop' | 'destina
     setPoint(p[p.length - 2], point);
   } else setPoint(nextEmptyIndex(), point);
 
-  if (!hasResult.value && canCompute.value) void compute();
+  // A place picked off the map is a new question. A desktop asks it only
+  // while there is no answer yet, and leaves the rest to Compute; a phone
+  // asks it every time.
+  if (canCompute.value && (!hasResult.value || autoAsk.value)) void compute();
 }
 
 export function selectRoute(id: string): void {
   selectedId.value = id;
 }
 
-/** Replay a stored query exactly as it was asked. */
+/**
+ * Replay a stored query as it was asked — except that a phone always shows the
+ * alternatives, whatever the link or the history row said.
+ */
 export function applyQuery(q: SharedQuery, run = true): void {
   suspended = true;
   slots.value = q.points.map((p) => newSlot({ ...p }));
   while (slots.value.length < 2) slots.value.push(newSlot());
   mode.value = q.mode;
   grade.value = q.grade;
-  alternatives.value = q.alternatives;
+  alternatives.value = isCompact.value ? 3 : q.alternatives;
   lifts.value = !!q.lifts;
   avoids.value = (q.avoid ?? []).slice(0, MAX_AVOIDS);
   avoidedWays.value = [];

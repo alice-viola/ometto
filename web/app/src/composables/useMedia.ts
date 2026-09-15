@@ -13,7 +13,7 @@ fine?.addEventListener?.('change', (e) => (hasHover.value = e.matches));
  * How much of the map the bottom sheet is covering right now. The map frames
  * routes into the band that is actually visible, so it has to know.
  */
-export const sheetHeight = ref(232);
+export const sheetHeight = ref(0); // a sheet sets it when it mounts, and clears it when it goes
 /** Bumped when the sheet settles on a snap point, never mid-drag. */
 export const sheetSettled = ref(0);
 /** True while a finger holds the sheet: what follows it must not ease behind it. */
@@ -25,3 +25,12 @@ export const sheetDragging = ref(false);
  */
 export const panelHidden = ref(readLocalRaw('panel.hidden') === '1');
 watch(panelHidden, (v) => writeLocalRaw('panel.hidden', v ? '1' : '0'));
+
+/**
+ * How far down the viewport the phone's floating search card reaches, so the
+ * map frames an answer below it and the sheet stops short of it. Zero on
+ * desktop, where the panel is beside the map rather than over it.
+ */
+export const topInset = ref(0);
+/** Bumped by anything that wants the map to frame the answer again. */
+export const frameRequest = ref(0);
