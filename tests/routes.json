@@ -1,0 +1,696 @@
+{
+ "about": "Ten reference routes across Trentino and Alto Adige, plus two extras inside the northern half of the region. Coordinates are OSM-derived where a place, peak or path node exists (precise to ~50 m); huts without an OSM node use the published coordinate and are marked in tests/reference-routes.md. reference.scale says which walking-time convention the reference uses: SAT/CAI is the Alpine club rule (4 km/h flat, 400 m/h up, 800 m/h down), which is also what our model implements; Komoot and Outdooractive are their own, usually faster.",
+ "routes": [
+  {
+   "id": "calisio",
+   "name": "Martignano (Pinara) to Monte Calisio on foot, SAT 401",
+   "mode": "hike",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 46.09604,
+     "lon": 11.12843,
+     "name": "Pinara, Via ai Bolleri, Martignano (~390 m)"
+    },
+    {
+     "lat": 46.098116,
+     "lon": 11.143397,
+     "name": "Monte Calisio summit (1096 m)"
+    }
+   ],
+   "reference": {
+    "km": 3.21,
+    "minutes": 120,
+    "ascent": 708,
+    "scale": "SAT/CAI - the SAT trail cadastre 2019 and OSM relation 7009824 tag SAT 401 as 3.190-3.21 km, 708 m, duration:forward 2:00 (backward 1:25). The often-quoted '3 h' is Outdooractive's 7 km LOOP up 401 and down 402, not the one-way line.",
+    "source": "https://www.openstreetmap.org/relation/7009824",
+    "source2": "https://www.sat.tn.it/wp-content/uploads/2020/05/CATASTO-2019-TUTTI-I-SENTIERI-.pdf",
+    "landmarks": [
+     "401",
+     "Predamala",
+     "Strada della Flora",
+     "Quattro Strade",
+     "Stoi",
+     "Monte Calisio"
+    ]
+   }
+  },
+  {
+   "id": "pedrotti",
+   "name": "Molveno (Ciclamino) to Rifugio Pedrotti alla Tosa on foot, SAT 319",
+   "mode": "hike",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 46.149038,
+     "lon": 10.949701,
+     "name": "Baita Ciclamino, end of Via Dolomiti, Molveno (~950 m)"
+    },
+    {
+     "lat": 46.154155,
+     "lon": 10.89874,
+     "name": "Rifugio Tommaso Pedrotti (2491 m)"
+    }
+   ],
+   "reference": {
+    "km": 9.47,
+    "minutes": 270,
+    "ascent": 1560,
+    "scale": "SAT/CAI - OSM relation 313435 / SAT cadastre: 9.11-9.47 km, 1560 m, duration:forward 4:30. SAT measures 319 from Ciclamino (950 m), not from Molveno village (864 m), which would add ~1.4 km and ~110 m. 'SAT 319B' does not exist in the 2019 cadastre.",
+    "source": "https://www.openstreetmap.org/relation/313435",
+    "source2": "https://www.sat.tn.it/rifugio-tosa-e-tommaso-pedrotti/",
+    "landmarks": [
+     "319",
+     "Val delle Seghe",
+     "Croz dell'Altissimo",
+     "Selvata",
+     "Massodi",
+     "Rifugio Tosa"
+    ]
+   }
+  },
+  {
+   "id": "brentei",
+   "name": "Vallesinella to Rifugio Brentei on foot, SAT 317 then 318 Bogani",
+   "mode": "hike",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 46.20662,
+     "lon": 10.85157,
+     "name": "Rifugio Vallesinella car park (1513 m)"
+    },
+    {
+     "lat": 46.175243,
+     "lon": 10.876025,
+     "name": "Rifugio Maria e Alberto ai Brentei (2182 m)"
+    }
+   ],
+   "reference": {
+    "km": 5.2,
+    "minutes": 145,
+    "ascent": 675,
+    "scale": "SAT/CAI - SAT 317 to Casinei 1.49 km/~50 min, then SAT 318 'Bogani' 3.73 km/100 min tagged on the OSM relation. Ardito walks it in 2 h 30, Outdooractive 5 h out and back. E to Casinei, EE on the Bogani.",
+    "source": "https://www.openstreetmap.org/relation/7031562",
+    "source2": "https://www.stefanoardito.it/2025/04/17/da-vallesinella-al-rifugio-brentei-dolomiti-di-brenta-trentino/",
+    "landmarks": [
+     "317",
+     "318",
+     "Casinei",
+     "Bogani",
+     "Fridolin",
+     "Brentei"
+    ]
+   }
+  },
+  {
+   "id": "cimaverde",
+   "name": "Sardagna to Cima Verde (Monte Bondone) on foot",
+   "mode": "hike",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 46.065979,
+     "lon": 11.102692,
+     "name": "Sardagna cable-car top station (~581 m)"
+    },
+    {
+     "lat": 45.995856,
+     "lon": 11.044808,
+     "name": "Cima Verde (2102 m)"
+    }
+   ],
+   "reference": {
+    "km": 13.0,
+    "minutes": 345,
+    "ascent": 1675,
+    "scale": "Composite ESTIMATE on the SAT/CAI scale: SAT 645 Piedicastello-Vaneze (6.56 km/1087 m/3:00) minus the part below Sardagna, then Vaneze-Norge-Vason-Viote, then SAT 636 to Cima Verde (relation 1169757: 5.01 km/605 m/2:40 to Cornetto). No single published Sardagna-Cima Verde reference exists.",
+    "source": "https://www.openstreetmap.org/relation/313457",
+    "source2": "https://www.ilbarbuto.blog/2024/09/06/da-viote-a-cima-verde-e-ritorno-a-trento/",
+    "landmarks": [
+     "645",
+     "636",
+     "Candriai",
+     "Vaneze",
+     "Norge",
+     "Vason",
+     "Viote",
+     "Cima Verde"
+    ]
+   }
+  },
+  {
+   "id": "riva-car",
+   "name": "Trento to Riva del Garda by car, SS45bis Gardesana",
+   "mode": "car",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 46.067352,
+     "lon": 11.121427,
+     "name": "Trento, Piazza del Duomo"
+    },
+    {
+     "lat": 45.88487,
+     "lon": 10.83968,
+     "name": "Riva del Garda, Piazza 3 Novembre"
+    }
+   ],
+   "reference": {
+    "km": 42.5,
+    "minutes": 50,
+    "ascent": null,
+    "scale": "Free-flow road-planner estimate: OSRM 44.2 km/49 min, Valhalla 42.4 km/65 min, aggregators 41-42 km/34-43 min. Both endpoints are pedestrian squares, which is deliberate: it is what a user clicks.",
+    "source": "https://www.gardatrentino.it/en/plan-your-trip/how-to-get-here/by-car",
+    "source2": "https://www.ilovevaldinon.it/come-arrivare-a-riva-del-garda",
+    "landmarks": [
+     "SS45bis",
+     "Bus de Vela",
+     "Cadine",
+     "Vezzano",
+     "Padergnone",
+     "Sarche",
+     "Dro",
+     "Arco"
+    ]
+   }
+  },
+  {
+   "id": "rovereto-bike",
+   "name": "Trento to Rovereto by bike, Ciclabile della Valle dell'Adige",
+   "mode": "bike",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 46.0701,
+     "lon": 11.1151,
+     "name": "Ponte San Lorenzo, Ciclovia della Valle dell'Adige, Trento"
+    },
+    {
+     "lat": 45.89082,
+     "lon": 11.03391,
+     "name": "Rovereto railway station / cycle path"
+    }
+   ],
+   "reference": {
+    "km": 25.19,
+    "minutes": 95,
+    "ascent": 31,
+    "scale": "Leisure cycling 15-18 km/h over 25.19 km measured on the cycleway (84-101 min); BRouter's sporty trekking model gives 72 min (~21 km/h). Elevation is BRouter's +31/-34 m with a 3 m threshold: the valley floor is flat.",
+    "source": "https://www.visittrentino.info/it/guida/tour/ciclovia-della-valle-dell-adige_tour_7024832",
+    "source2": "https://www.visittrentino.info/it/guida/attivita-outdoor/bicigrill/asgard-bici-grill-nomi_md_84753776",
+    "landmarks": [
+     "Ravina",
+     "Romagnano",
+     "Mattarello",
+     "Besenello",
+     "Calliano",
+     "Nomi",
+     "Volano",
+     "Rovereto"
+    ]
+   }
+  },
+  {
+   "id": "merano-bike",
+   "name": "Bolzano to Merano by bike, Etschradweg / Ciclabile dell'Adige",
+   "mode": "bike",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 46.50023,
+     "lon": 11.34701,
+     "name": "Bolzano, Ponte Talvera cycle junction (268 m)"
+    },
+    {
+     "lat": 46.66937,
+     "lon": 11.16109,
+     "name": "Merano, Piazza delle Terme (312 m)"
+    }
+   ],
+   "reference": {
+    "km": 30.3,
+    "minutes": 120,
+    "ascent": 70,
+    "scale": "Leisure cycling 15-18 km/h over 30.3 km measured (101-121 min); the tourist boards allow 2 h 15-2 h 20 including stops. Merano is HIGHER than Bolzano: +70/-30 m along the path.",
+    "source": "https://www.suedtirolerland.it/en/leisure-activities/mountain-biking-and-cycling/cycle-paths-in-south-tyrol/valle-dell-adige/",
+    "source2": "https://www.weinstrasse.com/en/leisure-activities/mountain-biking-and-cycling/adige-cycle-route-bolzano-merano/",
+    "landmarks": [
+     "Castel Firmiano",
+     "Settequerce",
+     "Terlano",
+     "Vilpiano",
+     "Gargazzone",
+     "Postal",
+     "Sinigo",
+     "Merano"
+    ]
+   }
+  },
+  {
+   "id": "firenze",
+   "name": "Ortisei to Rifugio Firenze / Regensburger Huette on foot",
+   "mode": "hike",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 46.575188,
+     "lon": 11.671897,
+     "name": "Ortisei, parish church / Streda Sacun (1236 m)"
+    },
+    {
+     "lat": 46.587533,
+     "lon": 11.758327,
+     "name": "Rifugio Firenze - Regensburger Huette (2037 m)"
+    }
+   ],
+   "reference": {
+    "km": 9.4,
+    "minutes": 211,
+    "ascent": 887,
+    "scale": "CAI/SAT rule (4 km/h, 400 m/h up, 800 m/h down, max + half the lesser) over the measured 9.4 km / 887 m gross: 211 min. The published figure on it./de.wikipedia is 2 h 30, which is an ascent-rate number (800 m at 400 m/h) that ignores the 9.4 km of horizontal; the hut's own 'about 4 h' is trail 4 from the village. No one-way Komoot or Outdooractive tour exists for this pair.",
+    "source": "https://it.wikipedia.org/wiki/Rifugio_Firenze",
+    "source2": "https://www.val-gardena.com/en/tours/detail/hike-from-ortisei-to-san-giacomo-church/",
+    "landmarks": [
+     "6",
+     "4",
+     "Val d'Anna",
+     "San Giacomo",
+     "Col Raiser",
+     "Cisles",
+     "Rifugio Firenze"
+    ]
+   }
+  },
+  {
+   "id": "tenno",
+   "name": "Riva del Garda to Lago di Tenno on foot, SAT 401",
+   "mode": "hike",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 45.884782,
+     "lon": 10.840065,
+     "name": "Riva del Garda, Torre Apponale / Piazza 3 Novembre (~67 m)"
+    },
+    {
+     "lat": 45.938456,
+     "lon": 10.815821,
+     "name": "Lago di Tenno (570 m)"
+    }
+   ],
+   "reference": {
+    "km": 9.4,
+    "minutes": 186,
+    "ascent": 576,
+    "scale": "CAI/SAT rule over the measured 9.4 km via the Cascata del Varone (8.3 km without the waterfall), 576 m gross: 186 min. No published one-way tour exists; the Outdooractive/Sentres 'Da Varone al Lago di Tenno' is a 10.7 km circuit, and that site carries two versions of it whose times differ by 50%.",
+    "source": "https://www.sentres.com/en/tour/hiking-trail/from-varone-to-the-lake-tenno/58463006/",
+    "source2": "https://en.wikipedia.org/wiki/Lago_di_Tenno",
+    "landmarks": [
+     "401",
+     "406",
+     "Varone",
+     "Cascata del Varone",
+     "Cologna",
+     "Tenno",
+     "Canale di Tenno",
+     "Lago di Tenno"
+    ]
+   }
+  },
+  {
+   "id": "cimatosa",
+   "name": "Trento to Cima Tosa, car to Molveno then on foot",
+   "mode": "car+hike",
+   "grade": "A",
+   "points": [
+    {
+     "lat": 46.067352,
+     "lon": 11.121427,
+     "name": "Trento, Piazza del Duomo"
+    },
+    {
+     "lat": 46.144529,
+     "lon": 10.964986,
+     "name": "Molveno, Pradel gondola valley station (905 m)"
+    },
+    {
+     "lat": 46.1565222,
+     "lon": 10.8711276,
+     "name": "Cima Tosa (3136 m)"
+    }
+   ],
+   "reference": {
+    "km": 54.0,
+    "minutes": 433,
+    "ascent": 2231,
+    "scale": "Car Trento-Molveno 42.2 km / 43 min free-flow (SS12 - SS43 Val di Non - SS421, NOT the SS45bis), then Molveno/Pradel-Pedrotti 240 min / +1617 m and Pedrotti-Cima Tosa 150 min / +645 m. NOTE: Pedrotti to the summit is EEA on the equipped SAT 358 followed by an F/PD alpine route with 25 m of UIAA II+ - rope, harness and descender are mandatory. A refusal is the correct answer. The often-repeated '2014 Canalone Neri collapse' could not be confirmed in any source; what is documented is the shrinking summit ice cap (3173 m in guidebooks, 3136 m measured in 2015).",
+    "source": "https://it.wikipedia.org/wiki/Cima_Tosa",
+    "source2": "https://rifugiotosapedrotti.it/wp-content/uploads/2022/05/Cima-Tosa-r.pdf",
+    "landmarks": [
+     "SS43",
+     "SS421",
+     "Andalo",
+     "Molveno",
+     "340",
+     "Croz dell'Altissimo",
+     "Selvata",
+     "319",
+     "Rifugio Tosa",
+     "358",
+     "Brentari",
+     "Cima Tosa"
+    ],
+    "walk": {
+     "km": 12.0,
+     "minutes": 420,
+     "ascent": 2231,
+     "scale": "The walking half only. Molveno/Pradel to Rifugio Pedrotti 10.1 km / 240 min / +1617 m (Outdooractive; SAT and the hut post 4 h 30 from Molveno), then Pedrotti to the summit +645 m (it.wikipedia). RE-BASELINED 2026-09-15 to grade A: the via normale above Pedrotti is a guided summer climb on glacier and UIAA II+ rock (rope, harness and descender mandatory, guided as a two-day ascent), which is grade A ground, so the row is now asked at A rather than refused at EEA and retried. The time uses the upper published figure for that stretch, 180 min rather than 150 (vienormali and the guides quote 2 h 30 to 3 h one way), giving 240 + 180 = 420 min; the 150 min on it.wikipedia is a plain ascent-rate number that does not price alpine pacing. Distance is an ESTIMATE, 11.5-13 km: no source covers the line end to end."
+    }
+   }
+  },
+  {
+   "id": "schlern",
+   "name": "Compatsch (Alpe di Siusi) to Rifugio Bolzano / Schlernhaus on foot",
+   "mode": "hike",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 46.5424,
+     "lon": 11.617,
+     "name": "Compatsch, cable-car top station (1857 m)"
+    },
+    {
+     "lat": 46.5074,
+     "lon": 11.5746,
+     "name": "Rifugio Bolzano / Schlernhaus (2457 m)"
+    }
+   ],
+   "reference": {
+    "km": 8.5,
+    "minutes": 200,
+    "ascent": 780,
+    "scale": "The hut's own page: trails 10-5-1, 3 h 20, 790 m. The CAI/AVS rule in its max-plus-half form gives 194 min for the same line, so reference and model agree on the convention.",
+    "source": "https://www.schlernhaus.it/en/plan-your-tour/ascent",
+    "source2": "https://www.outdooractive.com/en/route/hiking-trail/seiser-alm/from-compatsch-to-the-schlern/67102794/",
+    "landmarks": [
+     "10",
+     "5",
+     "1",
+     "Saltner",
+     "Touristensteig",
+     "Schlernhaus"
+    ]
+   }
+  },
+  {
+   "id": "ora-bike",
+   "name": "Bolzano to Ora / Auer by bike, Etschradweg south",
+   "mode": "bike",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 46.5002,
+     "lon": 11.3474,
+     "name": "Bolzano, Ponte Talvera cycle junction (~265 m)"
+    },
+    {
+     "lat": 46.361,
+     "lon": 11.2971,
+     "name": "Ora / Auer station (221 m)"
+    }
+   ],
+   "reference": {
+    "km": 19.1,
+    "minutes": 76,
+    "ascent": 25,
+    "scale": "Cycling at 15 km/h; cross-checks with the tourist board's 2 h 30 for the full 37 km Bolzano-Salorno (~14.8 km/h). Net drop about 50 m.",
+    "source": "https://www.suedtirolerland.it/en/leisure-activities/mountain-biking-and-cycling/cycle-paths-in-south-tyrol/bassa-atesina/",
+    "source2": "https://www.bicitalia.org/it/percorsi/119-pista-ciclabile-bassa-atesina",
+    "landmarks": [
+     "Laives",
+     "Bronzolo",
+     "Vadena",
+     "Ora",
+     "1"
+    ]
+   }
+  },
+  {
+   "id": "calisio-cognola",
+   "name": "Cognola to Monte Calisio on foot, SAT 402 (the Via Asiago side)",
+   "mode": "hike",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 46.076567,
+     "lon": 11.141721,
+     "name": "Cognola, Piazza dell'Argentario (~365 m)"
+    },
+    {
+     "lat": 46.098116,
+     "lon": 11.143397,
+     "name": "Monte Calisio summit (1096 m)"
+    }
+   ],
+   "reference": {
+    "km": 4.53,
+    "minutes": 130,
+    "ascent": 720,
+    "scale": "SAT/CAI - OSM relation 129334 / SAT cadastre: 4.550 km, 720 m, duration:forward 2:10. This is the trail that actually starts on the Cognola / Via Asiago side of Trento; SAT 401 starts at Martignano.",
+    "source": "https://www.openstreetmap.org/relation/129334",
+    "source2": "https://latracciaescursioniemontagna.com/2022/03/22/681-sentiero-natura-cognola-monte-calisio/",
+    "landmarks": [
+     "402",
+     "Sentiero Natura",
+     "Stoi",
+     "Monte Calisio"
+    ]
+   }
+  },
+  {
+   "id": "riva-car-drivable",
+   "name": "Trento station to Riva del Garda by car (drivable start, quality check)",
+   "mode": "car",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 46.0724,
+     "lon": 11.1189,
+     "name": "Trento railway station"
+    },
+    {
+     "lat": 45.88487,
+     "lon": 10.83968,
+     "name": "Riva del Garda, Piazza 3 Novembre"
+    }
+   ],
+   "reference": {
+    "km": 42.5,
+    "minutes": 50,
+    "ascent": null,
+    "scale": "Same reference as riva-car; this entry exists to measure route quality from a start the car graph can reach.",
+    "source": "https://www.gardatrentino.it/en/plan-your-trip/how-to-get-here/by-car",
+    "landmarks": [
+     "SS45bis",
+     "Cadine",
+     "Vezzano",
+     "Padergnone",
+     "Sarche",
+     "Dro",
+     "Arco"
+    ]
+   }
+  },
+  {
+   "id": "tenno-bikehike",
+   "name": "Riva del Garda by bike to Varone, then on foot to Lago di Tenno",
+   "mode": "bike+hike",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 45.884782,
+     "lon": 10.840065,
+     "name": "Riva del Garda, Torre Apponale"
+    },
+    {
+     "lat": 45.911417,
+     "lon": 10.834331,
+     "name": "Cascata del Varone (~125 m)"
+    },
+    {
+     "lat": 45.938456,
+     "lon": 10.815821,
+     "name": "Lago di Tenno (570 m)"
+    }
+   ],
+   "reference": {
+    "km": 9.4,
+    "minutes": 135,
+    "ascent": 576,
+    "scale": "Whole trip: 4.1 km ridden to Varone plus 5.28 km walked. Scored on the walking half.",
+    "source": "https://www.sentres.com/en/tour/hiking-trail/from-varone-to-the-lake-tenno/58463006/",
+    "source2": "https://en.wikipedia.org/wiki/Lago_di_Tenno",
+    "landmarks": [
+     "401",
+     "406",
+     "Varone",
+     "Cologna",
+     "Tenno",
+     "Canale di Tenno",
+     "Lago di Tenno"
+    ],
+    "walk": {
+     "km": 5.28,
+     "minutes": 113,
+     "ascent": 453,
+     "scale": "Varone to Lago di Tenno measured at 5.28 km / +453 m; the CAI/SAT rule gives 113 min (horizontal 79, vertical 68, max plus half the lesser). Published references for this stretch are all loops from Varone."
+    }
+   }
+  }
+ ],
+ "extras": {
+  "multistop": {
+   "name": "Trento - Vezzano - Riva del Garda by car, three stops",
+   "mode": "car",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 46.0724,
+     "lon": 11.1189,
+     "name": "Trento railway station (drivable)"
+    },
+    {
+     "lat": 46.07879,
+     "lon": 10.99941,
+     "name": "Vezzano"
+    },
+    {
+     "lat": 45.88477,
+     "lon": 10.83969,
+     "name": "Riva del Garda"
+    }
+   ]
+  },
+  "modes": {
+   "name": "Trento to Rovereto by car, bike and hike",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 46.0724,
+     "lon": 11.1189,
+     "name": "Trento railway station (drivable)"
+    },
+    {
+     "lat": 45.88655,
+     "lon": 11.04524,
+     "name": "Rovereto centre"
+    }
+   ],
+   "modes": [
+    "car",
+    "bike",
+    "hike"
+   ]
+  },
+  "alternatives": {
+   "name": "Trento to Riva del Garda by car, alternatives=3",
+   "mode": "car",
+   "grade": "EE",
+   "points": [
+    {
+     "lat": 46.0724,
+     "lon": 11.1189,
+     "name": "Trento railway station (drivable)"
+    },
+    {
+     "lat": 45.88477,
+     "lon": 10.83969,
+     "name": "Riva del Garda"
+    }
+   ]
+  },
+  "grades": {
+   "name": "Molveno to Rifugio Pedrotti at grade T, EE and EEA",
+   "mode": "hike",
+   "points": [
+    {
+     "lat": 46.149038,
+     "lon": 10.949701,
+     "name": "Baita Ciclamino, Molveno"
+    },
+    {
+     "lat": 46.154155,
+     "lon": 10.89874,
+     "name": "Rifugio Tosa-Pedrotti"
+    }
+   ],
+   "grades": [
+    "T",
+    "EE",
+    "EEA"
+   ]
+  },
+  "concurrency": {
+   "routes": [
+    {
+     "mode": "car",
+     "grade": "EE",
+     "points": [
+      {
+       "lat": 46.0724,
+       "lon": 11.1189
+      },
+      {
+       "lat": 45.88487,
+       "lon": 10.83968
+      }
+     ]
+    },
+    {
+     "mode": "hike",
+     "grade": "EE",
+     "points": [
+      {
+       "lat": 46.09604,
+       "lon": 11.12843
+      },
+      {
+       "lat": 46.098116,
+       "lon": 11.143397
+      }
+     ]
+    },
+    {
+     "mode": "bike",
+     "grade": "EE",
+     "points": [
+      {
+       "lat": 46.5002,
+       "lon": 11.3474
+      },
+      {
+       "lat": 46.361,
+       "lon": 11.2971
+      }
+     ]
+    },
+    {
+     "mode": "hike",
+     "grade": "EEA",
+     "points": [
+      {
+       "lat": 46.20662,
+       "lon": 10.85157
+      },
+      {
+       "lat": 46.175243,
+       "lon": 10.876025
+      }
+     ]
+    }
+   ],
+   "note": "all four are routable: the Brentei leg asks at EEA, the grade the engine names"
+  }
+ }
+}

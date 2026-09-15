@@ -1,0 +1,15 @@
+{
+  "name": "Ometto — routes in Trentino-Alto Adige",
+  "short_name": "Ometto",
+  "description": "Plan a route in Trentino-Alto Adige on foot, by bike or by car: times, ascent, trail grade and the elevation profile.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f4f2",
+  "theme_color": "#f4f4f2",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

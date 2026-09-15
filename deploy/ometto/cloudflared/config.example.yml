@@ -1,0 +1,29 @@
+# cloudflared, credentials-file mode: copy to config.yml beside the tunnel's
+# credentials JSON, replace <TUNNEL-ID> with the id `cloudflared tunnel create`
+# printed, and keep both files out of the repository.
+#
+# The pair lives in /opt/ometto/cloudflared/ on the instance, owned by 65532
+# (the cloudflared image's non-root user), the directory 700 and the files
+# 600, mounted read-only at /etc/cloudflared.
+
+tunnel: <TUNNEL-ID>
+credentials-file: /etc/cloudflared/<TUNNEL-ID>.json
+
+# Order matters: the first rule that matches wins, so /metrics is refused on
+# both hostnames BEFORE they reach the app. The router refuses it as well
+# (it answers 404 to anything carrying CF-Connecting-IP); this is the outer
+# lock of the two. Everything else goes to the app by its compose service
+# name, over plain HTTP inside the compose network.
+ingress:
+  - hostname: omettomaps.com
+    path: ^/metrics$
+    service: http_status:404
+  - hostname: www.omettomaps.com
+    path: ^/metrics$
+    service: http_status:404
+  - hostname: omettomaps.com
+    service: http://ometto:8100
+  - hostname: www.omettomaps.com
+    service: http://ometto:8100
+  # Anything that is neither hostname: not ours.
+  - service: http_status:404

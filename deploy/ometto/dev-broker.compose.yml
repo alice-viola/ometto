@@ -1,0 +1,130 @@
+# The development broker for Ometto, on a laptop. Not for a deployed box.
+#
+# The router needs a Queen broker: the `routes` queue carries every request and
+# the KV holds favourites and history (README.md). In production that is the
+# Queen Cloud tenant named in .env; here it is this pair of containers.
+#
+#   make broker-up      # docker compose -p ometto-dev -f deploy/ometto/dev-broker.compose.yml up -d
+#   make broker-down    # ... down -v   (deletes the volume, so the KV with it)
+#
+#   QUEEN_URL=http://localhost:6633
+#   PG_URL=postgres://postgres:postgres@127.0.0.1:5471/postgres?sslmode=disable
+#
+# Auth is OFF (no JWT env), Postgres is published on loopback only, and both
+# ports are the ones README.md and the Makefile already use.
+#
+# The Postgres tuning below was measured on this Mac against a much heavier
+# write load than Ometto's (the traffic prototype this repository used to
+# hold): it is more than a route queue needs, and it is left as it is because
+# it is known to behave. The broker's own knobs are Queen's defaults except
+# the four noted.
+
+services:
+  pg:
+    image: postgres:16
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=4GB
+      - -c
+      - effective_cache_size=6GB
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=1GB
+      - -c
+      - wal_buffers=64MB
+      - -c
+      - min_wal_size=1GB
+      - -c
+      - max_wal_size=8GB
+      - -c
+      - checkpoint_timeout=15min
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - max_worker_processes=16
+      - -c
+      - max_parallel_workers=8
+      - -c
+      - max_parallel_workers_per_gather=4
+      - -c
+      - max_parallel_maintenance_workers=4
+      - -c
+      - autovacuum_max_workers=3
+      - -c
+      - autovacuum_naptime=30s
+      - -c
+      - autovacuum_vacuum_cost_limit=600
+      - -c
+      - autovacuum_vacuum_scale_factor=0.02
+      - -c
+      - autovacuum_analyze_scale_factor=0.02
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - track_io_timing=on
+      - -c
+      - synchronous_commit=off
+      - -c
+      - fsync=on
+      - -c
+      - wal_writer_delay=200ms
+      - -c
+      - huge_pages=off
+    shm_size: 1g
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      # Loopback only: nothing off this box has any business in it.
+      - "127.0.0.1:5471:5432"
+    volumes:
+      - ometto-dev-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+
+  queen:
+    image: ghcr.io/queen-mq/queen:1.6.0
+    depends_on:
+      pg:
+        condition: service_healthy
+    ports:
+      - "6633:6633"
+    environment:
+      PG_HOST: pg
+      PG_PORT: "5432"
+      PG_USER: postgres
+      PG_PASSWORD: postgres
+      PG_DATABASE: postgres
+      QUEEN_APPLY_SCHEMA: "1"
+      PORT: "6633"
+      DB_POOL_SIZE: "48"
+      FILE_BUFFER_DIR: /var/lib/queen/buffers
+
+      # Favourites and history are KV reads and writes on every page load, so
+      # the KV rates are the ones Ometto leans on; the rest is Queen's own
+      # default behaviour.
+      QUEEN_KV_READ_RATE: "5000"
+      QUEEN_KV_WRITE_RATE: "5000"
+      # Route requests and their answers are short-lived: the queues are swept
+      # rather than kept (cmd/router configures 300 s of retention itself).
+      RETENTION_INTERVAL: "30000"
+      STATS_INTERVAL_MS: "30000"
+    tmpfs:
+      - /var/lib/queen/buffers
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:6633/health >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 40
+
+volumes:
+  ometto-dev-pg:

@@ -1,0 +1,27 @@
+# Only used by the `caddy` profile (docker compose --profile caddy up -d).
+# The default way in is the Cloudflare tunnel, which needs none of this.
+#
+# There is deliberately no global `email` directive: ACME_EMAIL may be unset,
+# and an empty one stops Caddy from starting. To get expiry notices, add:
+#     {
+#         email you@example.org
+#     }
+
+{$DOMAIN} {
+	encode gzip zstd
+	log {
+		output stdout
+		format json
+	}
+
+	@metrics path /metrics
+	respond @metrics 404
+
+	reverse_proxy ometto:8100 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}
+
+www.{$DOMAIN} {
+	redir https://{$DOMAIN}{uri} permanent
+}

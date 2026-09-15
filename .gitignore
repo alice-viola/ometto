@@ -1,0 +1,44 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+bin/
+
+# Prebuilt example binaries that came with the vendored SDK copy (18 MB of Mach-O):
+# kept on disk because the vendor copy is verbatim, never committed.
+third_party/queen-client-go/07-rate-limiter
+third_party/queen-client-go/08-rate-limiter-stress
+
+log/
+
+# The tunnel's credentials and its filled-in config never leave the instance.
+deploy/ometto/cloudflared/*.json
+deploy/ometto/cloudflared/config.yml
+
+# The filled-in .env holds the Queen Cloud token and the tunnel token, and
+# deploy/ometto/README.md tells you to make one with `cp .env.example .env`.
+# The example, with its values empty, is the only one that belongs here.
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# The image travels to the instance as a tar while there is no registry; a
+# 168 MB one in the repository root is an accident, not a deliverable.
+ometto-*.tar
+*-amd64.tar
+
+# --- everything tools/refresh-region.sh writes ----------------------------
+# The map is DERIVED, from an OpenStreetMap extract, a Copernicus DEM and the
+# Province of Trento's SAT cadastre, and it weighs 549 MB: the region map
+# alone is 154 MB and one intermediate is 245 MB, both over GitHub's 100 MB
+# hard limit. It is rebuilt in about four minutes by
+#   tools/refresh-region.sh
+# and data/README-TAA.md has the sources, the steps and their running times.
+# What stays in git is what a person wrote: the pipeline, the engine, the page.
+data/osm-taa/
+data/build-info.json
+web/public/taa.json
+web/public/*.geojson
+web/public/region-bbox.json
+web/tiles/

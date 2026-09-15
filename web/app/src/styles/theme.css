@@ -1,0 +1,356 @@
+/* MapLibre ships unlayered CSS, which would otherwise beat every Tailwind
+   utility (unlayered styles win over layered ones). Park it in a layer that
+   sits below ours, so `absolute inset-0` still applies to the map container. */
+@layer vendor;
+@import "tailwindcss";
+@import "maplibre-gl/dist/maplibre-gl.css" layer(vendor);
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------------------------------------------------------------------------
+   Tokens. One ink for text and numbers, one muted grey for labels, one accent.
+   Colour is spent only where it carries meaning: the three travel modes, the
+   four trail grades, the start and destination markers.
+   --------------------------------------------------------------------------- */
+:root {
+  --bg: #f4f4f2;
+  --surface: #ffffff;
+  --surface-2: #f7f7f5;
+  --surface-3: #eeeeeb;
+  --ink: #15181c;
+  --ink-invert: #ffffff;
+  --muted: #676d75;
+  --faint: #9298a0;
+  --line: #e3e3df;
+  --line-strong: #cdcdc7;
+  --accent: #2f62d4;
+  --accent-soft: rgb(47 98 212 / 0.09);
+
+  --car: #2f62d4;
+  --bike: #1a8a5c;
+  --hike: #b3612a;
+  --start: #15181c;
+  --dest: #bb3849;
+
+  --grade-t: #7f9472;
+  --grade-e: #ad9750;
+  --grade-ee: #ab6a3a;
+  --grade-eea: #93504e;
+  /* Alpine sits outside the warm hiking ramp on purpose: it is not a harder
+     marked path, it is unmarked ground. */
+  --grade-a: #4c6a80;
+
+  /* A ride is not a mode of walking and must not be read as one. */
+  --lift: #7a5aa8;
+  --alert-soft: rgb(187 56 73 / 0.10);
+
+  --shadow-1: 0 1px 2px rgb(16 18 22 / 0.05);
+  --shadow-2: 0 1px 2px rgb(16 18 22 / 0.04), 0 10px 28px rgb(16 18 22 / 0.08);
+  --map-ground: #e8e6e1;
+}
+
+.dark {
+  --bg: #0c0e11;
+  --surface: #131619;
+  --surface-2: #1a1e22;
+  --surface-3: #22262b;
+  --ink: #e9ebee;
+  --ink-invert: #0c0e11;
+  --muted: #949aa3;
+  --faint: #6c737c;
+  --line: #24282d;
+  --line-strong: #363c43;
+  --accent: #7ba4ff;
+  --accent-soft: rgb(123 164 255 / 0.14);
+
+  --car: #7ba4ff;
+  --bike: #3fc48d;
+  --hike: #e0904f;
+  --start: #e9ebee;
+  --dest: #ef7c8e;
+
+  --grade-t: #9db292;
+  --grade-e: #cdb977;
+  --grade-ee: #cd8e5f;
+  --grade-eea: #c07573;
+  --grade-a: #93b4cc;
+
+  --lift: #bda3e8;
+  --alert-soft: rgb(239 124 142 / 0.13);
+
+  --shadow-1: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-2: 0 1px 2px rgb(0 0 0 / 0.35), 0 12px 32px rgb(0 0 0 / 0.45);
+  --map-ground: #14171a;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-ink: var(--ink);
+  --color-ink-invert: var(--ink-invert);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-car: var(--car);
+  --color-bike: var(--bike);
+  --color-hike: var(--hike);
+  --color-lift: var(--lift);
+  --color-dest: var(--dest);
+  --color-alert-soft: var(--alert-soft);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+
+  --radius-card: 12px;
+  --radius-control: 9px;
+
+  --shadow-soft: var(--shadow-1);
+  --shadow-float: var(--shadow-2);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.45;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overscroll-behavior: none;
+  }
+  #app {
+    height: 100dvh;
+    overflow: hidden;
+  }
+  button {
+    font: inherit;
+    color: inherit;
+    font-variant-numeric: tabular-nums;
+  }
+  input {
+    font: inherit;
+    color: inherit;
+  }
+  /* One focus ring everywhere. It must not restyle the element it lands on:
+     setting a radius here squashed the rounded chips the moment they took
+     focus, so the outline simply follows whatever radius the element has. */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: var(--accent-soft);
+  }
+}
+
+@layer components {
+  /* A quiet scrollbar; the panel scrolls a lot and must not look industrial. */
+  .scroll-quiet {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+  .scroll-quiet::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-quiet::-webkit-scrollbar-thumb {
+    background: var(--line-strong);
+    border-radius: 99px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  .scroll-quiet::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+  }
+
+  .btn-primary {
+    background: var(--ink);
+    color: var(--ink-invert);
+    border-radius: var(--radius-control);
+    font-weight: 600;
+    transition: opacity 0.14s ease, transform 0.14s ease;
+  }
+  .btn-primary:hover:not(:disabled) {
+    opacity: 0.88;
+  }
+  .btn-primary:active:not(:disabled) {
+    transform: translateY(0.5px);
+  }
+  .btn-primary:disabled {
+    opacity: 0.4;
+  }
+
+  /* For the one action that accepts a real risk: the same weight as the
+     warning it answers, so it is never mistaken for an ordinary next step. */
+  .btn-alert {
+    background: var(--dest);
+    color: #ffffff;
+    border-radius: var(--radius-control);
+    font-weight: 600;
+    transition: opacity 0.14s ease, transform 0.14s ease;
+  }
+  .btn-alert:hover:not(:disabled) {
+    opacity: 0.9;
+  }
+  .btn-alert:active:not(:disabled) {
+    transform: translateY(0.5px);
+  }
+
+  .btn-quiet {
+    border-radius: var(--radius-control);
+    color: var(--muted);
+    transition: background 0.14s ease, color 0.14s ease;
+  }
+  .btn-quiet:hover:not(:disabled) {
+    background: var(--surface-3);
+    color: var(--ink);
+  }
+  .btn-quiet:disabled {
+    opacity: 0.4;
+  }
+
+  .field {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-control);
+    transition: border-color 0.14s ease, background 0.14s ease;
+  }
+  .field:focus-within {
+    border-color: var(--accent);
+    background: var(--surface);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  /* The field is the focus surface; its input must not draw a second ring. */
+  .field :focus-visible {
+    outline: none;
+  }
+}
+
+/* --- MapLibre, dressed down to match ------------------------------------- */
+.maplibregl-map {
+  font-family: var(--font-sans);
+}
+/* MapLibre's own CSS sits in the `vendor` layer, below Tailwind's, and
+   Tailwind's preflight resets the margin of every element — which beats the
+   vendor layer whatever its specificity, because layer order decides first.
+   The effect was that every map control lost its 10 px inset and sat jammed
+   into the corner: the scale bar and the attribution ran under the panel's
+   edge and its shadow, and the zoom group touched the top of the window.
+   These four are MapLibre's own values, restored in our layer. */
+.maplibregl-ctrl-top-left .maplibregl-ctrl {
+  margin: 10px 0 0 10px;
+}
+.maplibregl-ctrl-top-right .maplibregl-ctrl {
+  margin: 10px 10px 0 0;
+}
+.maplibregl-ctrl-bottom-left .maplibregl-ctrl {
+  margin: 0 0 10px 10px;
+}
+.maplibregl-ctrl-bottom-right .maplibregl-ctrl {
+  margin: 0 10px 10px 0;
+}
+.maplibregl-ctrl-group {
+  background: var(--surface) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: var(--radius-control) !important;
+  box-shadow: var(--shadow-1) !important;
+  overflow: hidden;
+}
+.maplibregl-ctrl-group button + button {
+  border-top: 1px solid var(--line) !important;
+}
+.maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: var(--ctrl-icon-filter, none);
+}
+.dark .maplibregl-ctrl-group button .maplibregl-ctrl-icon {
+  filter: invert(1) hue-rotate(180deg) brightness(1.1);
+}
+.maplibregl-ctrl-attrib {
+  background: color-mix(in srgb, var(--surface) 82%, transparent) !important;
+  color: var(--faint) !important;
+  font-size: 10px !important;
+  border-radius: 6px 0 0 0;
+}
+.maplibregl-ctrl-attrib a {
+  color: var(--muted) !important;
+}
+.maplibregl-canvas:focus {
+  outline: none;
+}
+
+/* Markers must not steal the pointer from the map when they are decorative. */
+.marker-pin {
+  cursor: grab;
+}
+.marker-pin:active {
+  cursor: grabbing;
+}
+
+/* --- Phones: thumbs, the keyboard and the sheet ---------------------------
+   Unlayered on purpose: these have to beat the utilities that size the same
+   controls for a cursor. Nothing here applies at 900 px and above. */
+@media (max-width: 899px) {
+  /* Anything pressed with a thumb gets 44 px, whatever it looks like. */
+  .btn-primary,
+  .btn-alert,
+  .btn-quiet {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  /* Under 16 px iOS zooms the page in when a field takes focus, and never
+     quite zooms it back. */
+  .field input,
+  input.field {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  /* The sheet covers the bottom of the map: the scale bar and the attribution
+     ride up with it, and a notch is kept clear of the zoom buttons. */
+  .maplibregl-ctrl-bottom-left,
+  .maplibregl-ctrl-bottom-right {
+    transform: translateY(calc(-1 * var(--sheet-h, 0px)));
+    transition: var(--sheet-transition, transform 0.26s cubic-bezier(0.22, 1, 0.36, 1));
+  }
+  .maplibregl-ctrl-top-left,
+  .maplibregl-ctrl-top-right {
+    top: env(safe-area-inset-top, 0px);
+  }
+  .maplibregl-ctrl-group button {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

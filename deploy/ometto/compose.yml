@@ -1,0 +1,71 @@
+# Ometto on one small machine. The app publishes no port at all: the only way
+# in is the Cloudflare tunnel beside it, which dials out. Queen and its
+# Postgres are NOT here — they are the Queen Cloud tenant named in QUEEN_URL.
+# Copy .env.example to .env and fill it in first.
+
+services:
+  ometto:
+    image: ${OMETTO_IMAGE:-ometto:latest}
+    restart: always
+    environment:
+      QUEEN_URL: ${QUEEN_URL}
+      QUEEN_TOKEN: ${QUEEN_TOKEN}
+      QUEEN_PREFIX: ${QUEEN_PREFIX:-ometto.}
+      DOMAIN: ${DOMAIN}
+      PUBLIC_URL: ${PUBLIC_URL}
+      TRUSTED_PROXY: "true"          # nothing but the tunnel can reach it
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      TERRAIN_URL: ${TERRAIN_URL:-}
+      DISCLAIMER_VERSION: ${DISCLAIMER_VERSION:-1}
+    expose:
+      - "8100"
+    mem_limit: 2g
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  # The way in: cloudflared dials Cloudflare and serves omettomaps.com from
+  # there. No inbound port on this machine, so 80 and 443 can stay shut.
+  #
+  # This is the CREDENTIALS-FILE mode, which is what is deployed: the tunnel
+  # was created on the instance with the CLI, and its id, its credentials JSON
+  # and the ingress rules live in ./cloudflared (see cloudflared/config.example.yml).
+  # For the dashboard-token mode instead:
+  #   docker compose -f compose.yml -f compose.tunnel-token.yml up -d
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: always
+    depends_on: [ometto]
+    command: tunnel --no-autoupdate --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./cloudflared:/etc/cloudflared:ro
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  # The other way in, kept for a deployment without Cloudflare:
+  #   docker compose --profile caddy up -d
+  # It needs 80 and 443 open and ACME_EMAIL set.
+  caddy:
+    profiles: [caddy]
+    image: caddy:2-alpine
+    restart: always
+    depends_on: [ometto]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,26 @@
+{
+  "name": "trentino-route-planner",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "brand": "node scripts/brand-export.mjs",
+    "proof": "node scripts/proof.mjs"
+  },
+  "dependencies": {
+    "maplibre-contour": "^0.1.0",
+    "maplibre-gl": "^5.6.0",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.11",
+    "@vitejs/plugin-vue": "^6.0.0",
+    "tailwindcss": "^4.1.11",
+    "typescript": "~5.9.3",
+    "vite": "^7.1.7",
+    "vue-tsc": "^3.1.0"
+  }
+}

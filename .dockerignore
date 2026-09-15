@@ -1,0 +1,23 @@
+# The docker build context is the repository root (see deploy/Dockerfile.go).
+# Everything here is either rebuilt inside the image or useless in a Linux one.
+
+.git
+.gitignore
+docs
+README.md
+Makefile
+deploy
+
+node_modules
+**/node_modules
+dist
+
+# The vendored SDK copy is verbatim and carries two prebuilt macOS example
+# binaries (18 MB of Mach-O). They are gitignored; they must not reach the
+# build context either.
+third_party/queen-client-go/07-rate-limiter
+third_party/queen-client-go/08-rate-limiter-stress
+
+**/*.log
+.DS_Store
+bin

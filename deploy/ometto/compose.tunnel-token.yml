@@ -1,0 +1,13 @@
+# The other way to run the tunnel: one token from the Cloudflare dashboard,
+# no files on the instance. The ingress rules then live in the dashboard
+# instead of cloudflared/config.yml — including the rule that refuses
+# /metrics, which this mode cannot express locally.
+#
+#   docker compose -f compose.yml -f compose.tunnel-token.yml up -d
+#
+# CF_TUNNEL_TOKEN comes from Zero Trust -> Networks -> Tunnels.
+
+services:
+  cloudflared:
+    command: tunnel --no-autoupdate run --token ${CF_TUNNEL_TOKEN}
+    volumes: []

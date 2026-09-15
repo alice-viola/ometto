@@ -1,0 +1,512 @@
+// Package queen provides a Go client for Queen MQ - a high-performance message queue.
+package queen
+
+import (
+	"context"
+	"encoding/json"
+	"time"
+)
+
+// Message represents a message from Queen MQ.
+type Message struct {
+	TransactionID string                 `json:"transactionId"`
+	PartitionID   string                 `json:"partitionId"`
+	LeaseID       string                 `json:"leaseId,omitempty"`
+	Queue         string                 `json:"queue"`
+	Partition     string                 `json:"partition"`
+	Data          map[string]interface{} `json:"data"`
+	CreatedAt     string                 `json:"createdAt"`
+	ErrorMessage  string                 `json:"errorMessage,omitempty"`
+	RetryCount    int                    `json:"retryCount"`
+
+	// ProducerSub is the authenticated producer identity stamped by the server
+	// from the JWT "sub" claim at push time. It is present only when JWT
+	// authentication is enabled on the server. Clients CANNOT set this field
+	// on push - the server always derives it from the validated JWT, which is
+	// how impersonation is prevented. See the server docs on authentication
+	// for details.
+	ProducerSub string `json:"producerSub,omitempty"`
+
+	// trace is the function to add traces to this message
+	trace TraceFunc
+}
+
+// Trace adds a trace to this message. Never panics - errors are logged and returned gracefully.
+func (m *Message) Trace(ctx context.Context, config TraceConfig) (*TraceResponse, error) {
+	if m.trace == nil {
+		return &TraceResponse{Success: false, Error: "trace function not set"}, nil
+	}
+	return m.trace(ctx, config)
+}
+
+// SetTrace sets the trace function for this message (internal use).
+func (m *Message) SetTrace(fn TraceFunc) {
+	m.trace = fn
+}
+
+// TraceFunc is the function signature for message tracing.
+type TraceFunc func(ctx context.Context, config TraceConfig) (*TraceResponse, error)
+
+// TraceConfig contains configuration for a trace operation.
+type TraceConfig struct {
+	TraceName string                 `json:"traceName,omitempty"`
+	TraceNames []string              `json:"traceNames,omitempty"`
+	EventType string                 `json:"eventType,omitempty"`
+	Data      map[string]interface{} `json:"data"`
+}
+
+// TraceResponse is the response from a trace operation.
+type TraceResponse struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// ClientConfig contains configuration for the Queen client.
+type ClientConfig struct {
+	// URLs is the list of Queen server URLs
+	URLs []string
+	// URL is a single Queen server URL (convenience, converted to URLs)
+	URL string
+	// TimeoutMillis is the HTTP request timeout in milliseconds
+	TimeoutMillis int
+	// RetryAttempts is the number of retry attempts for failed requests
+	RetryAttempts int
+	// RetryDelayMillis is the initial retry delay in milliseconds (exponential backoff)
+	RetryDelayMillis int
+	// LoadBalancingStrategy is the strategy for load balancing ("round-robin", "session", "affinity")
+	LoadBalancingStrategy string
+	// AffinityHashRing is the number of virtual nodes per server for affinity strategy
+	AffinityHashRing int
+	// EnableFailover enables automatic failover to other servers
+	EnableFailover bool
+	// HealthRetryAfterMillis is the delay before retrying unhealthy backends
+	HealthRetryAfterMillis int
+	// BearerToken is the bearer token for authentication
+	BearerToken string
+	// Headers is a map of custom headers to include in every request
+	Headers map[string]string
+	// MaxIdleConnsPerHost caps idle keep-alive connections retained per host.
+	// Go's net/http default is 2, which cripples high-concurrency, single-host
+	// workloads (load generators, hot producer pools) by forcing per-request
+	// connection setup/teardown. When <= 0, the client uses a high default (256).
+	MaxIdleConnsPerHost int
+	// MaxConnsPerHost optionally caps total connections per host (0 = unlimited).
+	MaxConnsPerHost int
+	// Retry429 controls client-side backoff when the server returns HTTP 429
+	// (rate limited), separate from the 5xx/network RetryAttempts above. nil
+	// (or a zero-value field within it) falls back to kind-based defaults; see
+	// Retry429Config. PLAN_QUEEN_PROXY_CLOUD.md §4/§9 (client 429 backoff, B4).
+	Retry429 *Retry429Config
+}
+
+// Retry429Config is the backoff policy applied when a request is rate
+// limited (HTTP 429). Zero-value fields fall back to kind-based defaults:
+//   - MaxAttempts: bounded (10 total attempts) for ordinary requests (push,
+//     admin calls, non-waiting pop); unbounded for a long-poll pop
+//     (wait=true, requested via WithLongPollRetry()) -- the outer poll is
+//     already an indefinite loop, so a 429 there should back off and keep
+//     waiting rather than give up. Explicitly setting MaxAttempts applies it
+//     uniformly to both kinds.
+//   - BaseMs: initial backoff (ms) used when the response has no Retry-After
+//     header. Default 500.
+//   - CapMs: ceiling (ms) for the exponential backoff. Default 30000.
+//
+// When the server does send a Retry-After header (seconds), it is honored
+// (with +-20% jitter) instead of the computed exponential delay.
+type Retry429Config struct {
+	// MaxAttempts is the maximum number of attempts (including the first)
+	// before giving up on repeated 429s. 0 = use the kind-based default.
+	MaxAttempts int
+	// BaseMs is the initial backoff in milliseconds absent a Retry-After
+	// header. 0 = default (500ms).
+	BaseMs int
+	// CapMs is the backoff ceiling in milliseconds. 0 = default (30000ms).
+	CapMs int
+}
+
+// QueueConfig contains configuration for queue creation.
+//
+// The `yaml` tags are not decoration: `queenctl apply -f` decodes a manifest's
+// `config:` block straight into this struct with gopkg.in/yaml.v3, which without
+// a tag binds the LOWERCASED field name (`leasetime`). Every example in that
+// command's help, and every manifest anyone has written from it, spells the keys
+// the way the wire does — so an untagged field silently bound nothing, and
+// `apply` (which sends `mode: replace`) would put the whole block back to its
+// defaults while reporting success. One spelling, camelCase, in both formats.
+type QueueConfig struct {
+	// LeaseTime is the lease duration in seconds
+	LeaseTime int `json:"leaseTime,omitempty" yaml:"leaseTime,omitempty"`
+	// RetryLimit is the maximum number of retries before moving to DLQ
+	RetryLimit int `json:"retryLimit,omitempty" yaml:"retryLimit,omitempty"`
+	// Priority is the queue priority (higher = processed first)
+	Priority int `json:"priority,omitempty" yaml:"priority,omitempty"`
+	// DelayedProcessing is the delay in seconds before messages are available
+	DelayedProcessing int `json:"delayedProcessing,omitempty" yaml:"delayedProcessing,omitempty"`
+	// WindowBuffer is the window buffer in seconds
+	WindowBuffer int `json:"windowBuffer,omitempty" yaml:"windowBuffer,omitempty"`
+	// MaxSize is the maximum number of messages in the queue (0 = unlimited)
+	MaxSize int `json:"maxSize,omitempty" yaml:"maxSize,omitempty"`
+	// RetentionSeconds is the retention period for pending messages (0 = forever)
+	RetentionSeconds int `json:"retentionSeconds,omitempty" yaml:"retentionSeconds,omitempty"`
+	// CompletedRetentionSeconds is the retention period for completed messages
+	CompletedRetentionSeconds int `json:"completedRetentionSeconds,omitempty" yaml:"completedRetentionSeconds,omitempty"`
+	// RetentionEnabled turns on retention/cleanup for the queue. The server only
+	// runs the retention service on queues with this flag set, so RetentionSeconds
+	// and CompletedRetentionSeconds have no effect unless RetentionEnabled is true.
+	RetentionEnabled bool `json:"retentionEnabled,omitempty" yaml:"retentionEnabled,omitempty"`
+	// DeadLetterQueue routes messages that exhaust RetryLimit to the dead-letter
+	// queue instead of dropping them. The server only dead-letters poison messages
+	// when this (or DlqAfterMaxRetries) is set.
+	DeadLetterQueue bool `json:"deadLetterQueue,omitempty" yaml:"deadLetterQueue,omitempty"`
+	// DlqAfterMaxRetries is the retry-exhaustion trigger for dead-lettering; the
+	// server treats it as equivalent to DeadLetterQueue for the DLQ hand-off.
+	DlqAfterMaxRetries bool `json:"dlqAfterMaxRetries,omitempty" yaml:"dlqAfterMaxRetries,omitempty"`
+	// EncryptionEnabled enables payload encryption
+	EncryptionEnabled bool `json:"encryptionEnabled,omitempty" yaml:"encryptionEnabled,omitempty"`
+}
+
+// BufferConfig contains configuration for client-side message buffering.
+type BufferConfig struct {
+	// MessageCount is the number of messages to buffer before flushing
+	MessageCount int
+	// TimeMillis is the time in milliseconds to wait before flushing
+	TimeMillis int
+	// MaxSize is the backpressure bound: once this many messages are waiting
+	// in the buffer, Add BLOCKS (honoring its context) until the flusher
+	// drains below it, instead of growing process memory without limit.
+	// 0 means 4 x MessageCount. Measured motivation (2026-08-20): without a
+	// bound, a producer filling at 1.46M msg/s against a 1.0M msg/s flush
+	// pipeline accumulated 20.9M messages (11.7 GB) in 45 seconds and lost
+	// every one of them at process exit, with zero client-side errors.
+	// The bound is approximate: a flush batch that fails is re-queued, so
+	// occupancy can briefly overshoot by up to one MessageCount.
+	MaxSize int
+	// RetryDelayMillis is how long the flusher waits after a failed flush
+	// before retrying THE SAME batch. A failed batch is re-queued at the
+	// front of the buffer, never dropped: combined with MaxSize this turns a
+	// broker outage into blocked producers (bounded memory, no loss) instead
+	// of silent message loss. 0 means 250ms.
+	RetryDelayMillis int
+}
+
+// ConsumeOptions contains options for consuming messages.
+type ConsumeOptions struct {
+	Queue                   string
+	Partition               string
+	Namespace               string
+	Task                    string
+	Group                   string
+	Concurrency             int
+	// Batch is the message budget for one pop. 0 = UNSET, which now means the
+	// broker sizes it (see Autopilot); it used to mean the client-side default
+	// of 1. Any non-zero value is a pin: it is sent on the wire as before and
+	// the broker never overrides it.
+	Batch                   int
+	Limit                   int
+	IdleMillis              int
+	AutoAck                 bool
+	Wait                    bool
+	TimeoutMillis           int
+	RenewLease              bool
+	RenewLeaseIntervalMillis int
+	SubscriptionMode        string
+	SubscriptionFrom        string
+	Each                    bool
+	// MaxPartitions is the v4 multi-partition pop cap: claim up to N
+	// partitions in a single call. The Batch field becomes a global cap on
+	// total messages returned across all claimed partitions.
+	//
+	// 0 = UNSET, which now means the broker chooses the sweep width (see
+	// Autopilot); it used to mean the client-side default of 1. Any non-zero
+	// value is a pin, 1 included.
+	MaxPartitions           int
+	// Autopilot controls broker-side pop sizing. nil (the default) takes the
+	// client-wide setting, which is ON unless QUEEN_SDK_POP_AUTOPILOT=off was
+	// set in the environment (see EnvPopAutopilot).
+	//
+	// With autopilot on, the knobs left unset above — Batch, MaxPartitions, or
+	// both — are OMITTED from the pop request and chosen by the broker from
+	// state the client cannot see (ready partition count, the age of the oldest
+	// ready message, arrival rate), while the ones set explicitly travel
+	// unchanged and are never second-guessed. Setting both leaves autopilot
+	// nothing to decide and the request goes out exactly as it did before.
+	//
+	// Point it at false to restore this SDK's pre-1.2 behavior byte for byte:
+	// the client-side defaults come back (batch 1, partitions 1) and no
+	// autopilot parameter is sent.
+	//
+	// Requires broker >= 1.2. An older broker ignores the parameter, so the
+	// omitted knobs fall back to its own server-side defaults (batch 200,
+	// partitions 1) rather than to the client-side ones: a sizing difference,
+	// silent by design, with nothing lost or reordered.
+	Autopilot               *bool
+	// Conflation requests last-value delivery for this consumer group: a pop
+	// of a partition returns only its NEWEST visible message and commits
+	// everything below it, so a backlogged partition costs one handler
+	// invocation instead of one per message. For the "recompute entity X"
+	// shape, where one partition is one logical key and only the freshest
+	// state matters.
+	//
+	// It is a property of the GROUP, not of the call. The first consumer to
+	// register the group persists it, and from then on the stored value wins
+	// for every consumer of that group — a later consumer declaring the
+	// opposite is warned once (see ErrConflationUnsupported and
+	// conflation.go), not obeyed. Default false: a group that never sets it
+	// behaves exactly as before.
+	//
+	// Requires broker >= 1.1.0. An older broker ignores the flag and returns
+	// the full backlog; the client detects that and fails loudly rather than
+	// silently draining it.
+	Conflation              bool
+}
+
+// PopOptions contains options for popping messages.
+//
+// No API takes one: a pop is expressed with the fluent builder
+// (client.Queue(...).Batch(10).Pop(ctx)), and this struct's live role is to
+// carry PopDefaults. It is the description of that surface — including, below,
+// which knobs the broker now sizes on its own. The switch for that is
+// QueueBuilder.Autopilot, or QUEEN_SDK_POP_AUTOPILOT for a whole process.
+type PopOptions struct {
+	// Batch is the message budget for one pop. 0 = UNSET, which now means the
+	// broker sizes it; it used to mean the client-side default of 1 (still the
+	// value in PopDefaults, still what applies with autopilot off). Any
+	// non-zero value is a pin and travels on the wire as before.
+	Batch            int
+	Wait             bool
+	TimeoutMillis    int
+	AutoAck          bool
+	ConsumerGroup    string
+	SubscriptionMode string
+	SubscriptionFrom string
+	// MaxPartitions is the v4 multi-partition cap. 0 = UNSET, which now means
+	// the broker chooses the sweep width; it used to mean 1. Any non-zero value
+	// is a pin, 1 included.
+	//
+	// Requires broker >= 1.2 for the unset case; an older broker ignores the
+	// autopilot parameter and applies its own defaults (batch 200,
+	// partitions 1) to whatever the client omitted.
+	MaxPartitions    int
+	// Conflation requests last-value delivery for the consumer group. See
+	// ConsumeOptions.Conflation: it is the same group-level policy, and a pop
+	// declares it the same way a consume does.
+	//
+	// Note the interaction with MaxPartitions: a conflating pop yields at most
+	// ONE message per partition, so with the default MaxPartitions=1 a pop
+	// returns at most one message whatever Batch says. Leave MaxPartitions
+	// unset to let the broker size the claim from Batch (capped at 64, the
+	// measured checkout width), or set it explicitly.
+	Conflation       bool
+}
+
+// AckOptions contains options for acknowledging messages.
+type AckOptions struct {
+	ConsumerGroup string
+	Error         string
+}
+
+// AckResponse is the response from an acknowledgment operation.
+type AckResponse struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+}
+
+// RenewResponse is the response from a lease renewal operation.
+type RenewResponse struct {
+	LeaseID      string    `json:"leaseId"`
+	Success      bool      `json:"success"`
+	NewExpiresAt time.Time `json:"newExpiresAt,omitempty"`
+	Error        string    `json:"error,omitempty"`
+}
+
+// BufferStats contains statistics about message buffers.
+type BufferStats struct {
+	ActiveBuffers         int     `json:"activeBuffers"`
+	TotalBufferedMessages int     `json:"totalBufferedMessages"`
+	OldestBufferAge       float64 `json:"oldestBufferAge"`
+	FlushesPerformed      int     `json:"flushesPerformed"`
+}
+
+// DLQResponse is the response from a DLQ query.
+type DLQResponse struct {
+	Messages []Message `json:"messages"`
+	Total    int       `json:"total"`
+}
+
+// ReasonKVPrecondition is the Reason a commit carries when a KV operation
+// marked Required lost its precondition and rolled the bundle back. It is a
+// verdict, not a failure: Commit returns it instead of raising (§8.3).
+const ReasonKVPrecondition = "kv_precondition"
+
+// TransactionResponse is the response from a transaction commit.
+type TransactionResponse struct {
+	Success bool   `json:"success"`
+	Error   string `json:"error,omitempty"`
+	// TransactionID is the broker's id for this bundle.
+	TransactionID string `json:"transactionId,omitempty"`
+	// Reason is the machine-readable failure class, e.g. ReasonKVPrecondition.
+	Reason string `json:"reason,omitempty"`
+
+	// The four fields below are filled on a lost KV precondition, and they exist
+	// so the loser needs no second round trip: without them a client would have
+	// to string-match the error message, which is forbidden in this codebase.
+	//
+	// FailedIndex is in the FLAT result space (pushes and acks first, then the
+	// kv array, then the timers array) and is -1 when absent. Version is the
+	// CURRENT version of the contended key and is advisory: it was read in the
+	// same statement as the failed write, but it is not a fencing token to reuse
+	// blindly (§5.3).
+	FailedIndex int             `json:"failedIndex,omitempty"`
+	KVReason    string          `json:"kvReason,omitempty"`
+	Version     int64           `json:"version,omitempty"`
+	Value       json.RawMessage `json:"value,omitempty"`
+
+	// KV and Timers are the rider results, in the order of the arrays that were
+	// sent. Results is the whole flat array, undecoded.
+	KV      []KVResult        `json:"-"`
+	Timers  []TimerResult     `json:"-"`
+	Results []json.RawMessage `json:"-"`
+}
+
+// IsKVPrecondition reports whether this bundle was rolled back because a
+// Required KV operation lost its precondition -- somebody else got there first.
+// It is the expected outcome of a legitimate redelivery.
+func (r *TransactionResponse) IsKVPrecondition() bool {
+	return r != nil && !r.Success && r.Reason == ReasonKVPrecondition
+}
+
+// PushItem represents an item to be pushed to a queue.
+type PushItem struct {
+	Queue         string                 `json:"queue"`
+	Partition     string                 `json:"partition,omitempty"`
+	Payload       interface{}            `json:"payload"`
+	TransactionID string                 `json:"transactionId,omitempty"`
+	TraceID       string                 `json:"traceId,omitempty"`
+}
+
+// PushResponse is the response for a single pushed item.
+type PushResponse struct {
+	Status        string `json:"status"` // "queued", "duplicate", "failed"
+	TransactionID string `json:"transactionId"`
+	Error         string `json:"error,omitempty"`
+}
+
+// MessageHandler is the function signature for handling a single message.
+type MessageHandler func(ctx context.Context, msg *Message) error
+
+// BatchMessageHandler is the function signature for handling a batch of messages.
+type BatchMessageHandler func(ctx context.Context, msgs []*Message) error
+
+// Operation represents an operation in a transaction.
+type Operation struct {
+	Type          string      `json:"type"` // "ack" or "push"
+	TransactionID string      `json:"transactionId,omitempty"`
+	PartitionID   string      `json:"partitionId,omitempty"`
+	Status        string      `json:"status,omitempty"`
+	ConsumerGroup string      `json:"consumerGroup,omitempty"`
+	Items         []PushItem  `json:"items,omitempty"`
+}
+
+// HealthResponse is the response from a health check.
+type HealthResponse struct {
+	Status string `json:"status"`
+}
+
+// QueueInfo contains information about a queue.
+type QueueInfo struct {
+	Name      string      `json:"name"`
+	Namespace string      `json:"namespace,omitempty"`
+	Task      string      `json:"task,omitempty"`
+	Config    QueueConfig `json:"config,omitempty"`
+}
+
+// ConsumerGroupInfo contains information about a consumer group.
+type ConsumerGroupInfo struct {
+	Name                  string    `json:"name"`
+	SubscriptionTimestamp time.Time `json:"subscriptionTimestamp,omitempty"`
+}
+
+// popResponse is the internal response structure for pop operations.
+type popResponse struct {
+	Messages []Message `json:"messages"`
+}
+
+// pushRequest is the internal request structure for push operations.
+type pushRequest struct {
+	Items []pushRequestItem `json:"items"`
+}
+
+// pushRequestItem is an item in a push request.
+type pushRequestItem struct {
+	Queue         string      `json:"queue"`
+	Partition     string      `json:"partition,omitempty"`
+	Payload       interface{} `json:"payload"`
+	TransactionID string      `json:"transactionId,omitempty"`
+	TraceID       string      `json:"traceId,omitempty"`
+}
+
+// ackRequest is the internal request structure for single ack operations.
+type ackRequest struct {
+	TransactionID string `json:"transactionId"`
+	PartitionID   string `json:"partitionId"`
+	LeaseID       string `json:"leaseId,omitempty"`
+	Status        string `json:"status"`
+	Error         string `json:"error,omitempty"`
+	ConsumerGroup string `json:"consumerGroup,omitempty"`
+}
+
+// batchAckRequest is the internal request structure for batch ack operations.
+type batchAckRequest struct {
+	Acknowledgments []ackRequest `json:"acknowledgments"`
+	ConsumerGroup   string       `json:"consumerGroup,omitempty"`
+}
+
+// transactionRequest is the internal request structure for transaction operations.
+//
+// KV AND TIMERS ARE TOP-LEVEL FIELDS, NOT ELEMENTS OF `operations`, and this is
+// the single most important line of the kv/timers work in this client
+// (PLAN_KV_TIMERS.md §6.3, §8.2, §10.4).
+//
+// The alternative — growing Operation a `kv` leg so the ops could travel inline —
+// is not merely inelegant, it is silently broken in Go: two fields carrying the
+// same JSON key at the same level are DISCARDED BY BOTH in encoding/json, with
+// no error and no warning. The body would go out with zero KV operations, the
+// broker would commit a transaction whose gate never ran, and the putIfAbsent
+// would never have existed. Nothing downstream notices: not the status code, not
+// the results array, not a log line.
+//
+// So Operation does not change, and these two arrays live here. The flat result
+// space grows only at the END — pushes and acks keep the indices they have
+// today, then the kv array, then the timers array — so a bundle carrying neither
+// produces exactly the request and the response it produced before this feature
+// existed.
+type transactionRequest struct {
+	Operations     []Operation `json:"operations"`
+	RequiredLeases []string    `json:"requiredLeases"`
+	// omitempty on both: a bundle with no riders must not even carry the keys.
+	KV     []KVOp    `json:"kv,omitempty"`
+	Timers []TimerOp `json:"timers,omitempty"`
+}
+
+// configureRequest is the internal request structure for queue configuration.
+type configureRequest struct {
+	Queue     string                 `json:"queue"`
+	Namespace string                 `json:"namespace,omitempty"`
+	Task      string                 `json:"task,omitempty"`
+	Options   map[string]interface{} `json:"options,omitempty"`
+	// Mode is "replace" or empty. Empty means merge, which is the broker's own
+	// default, so an omitted key keeps the request byte-identical to the one
+	// this SDK sent before the option existed — including against a broker old
+	// enough to replace whatever it is told.
+	Mode string `json:"mode,omitempty"`
+}
+
+// traceRequest is the internal request structure for trace operations.
+type traceRequest struct {
+	TransactionID string                 `json:"transactionId"`
+	PartitionID   string                 `json:"partitionId"`
+	ConsumerGroup string                 `json:"consumerGroup"`
+	TraceNames    []string               `json:"traceNames,omitempty"`
+	EventType     string                 `json:"eventType"`
+	Data          map[string]interface{} `json:"data"`
+}
