@@ -15,7 +15,9 @@ Trentino-Alto Adige never sits in memory at once.
 
 Ways, plus the multipolygon relations assembled into areas (lakes and forests
 are mostly relations), plus the place nodes (city, town, village, ...) as a
-"places" layer for the labels, plus the huts -- which are a node only when
+"places" layer for the labels, plus the crags (nodes, cliff lines at their
+midpoint, site relations at the mean of their routes; see is_crag), plus the
+huts -- which are a node only when
 nobody has drawn the building yet, so the closed ways and the multipolygons
 tagged as one are emitted as their centroid too (most of South Tyrol's rifugi
 are buildings, Rifugio Firenze among them). Clipped to the bbox (a way is kept if any node
@@ -28,7 +30,7 @@ import json, math, pathlib, re, sys, time, unicodedata
 import osmium
 
 ALL_LAYERS = ("roads", "lifts", "rail", "water", "green_parks", "green_farm",
-              "green_wood", "landuse", "buildings", "places", "pois")
+              "green_wood", "landuse", "buildings", "places", "pois", "crags")
 
 pbf, out, bbox, name = sys.argv[1], pathlib.Path(sys.argv[2]), sys.argv[3], sys.argv[4]
 KEEP = ALL_LAYERS
@@ -69,6 +71,28 @@ RAIL = {"rail", "light_rail", "tram", "subway", "narrow_gauge"}
 LIFTS = {"cable_car", "gondola", "chair_lift", "mixed_lift"}
 # A lift that is not there any more is tagged, not deleted.
 GONE = ("abandoned", "disused", "proposed", "construction", "razed", "demolished")
+# A climbing crag, however the mappers of the day tagged it: `climbing=crag`,
+# or `climbing=area` for a group of crags, as the wiki says now; the older
+# `sport=climbing` on a cliff, a rock or a bare node; or -- most of Trentino --
+# `leisure=sports_centre` + `sport=climbing`, because the Italian for a crag is
+# "palestra di roccia", a rock gym, and the mappers took the word at its word.
+# A real gym has a building, says indoor, or is called a Halle. Not a route
+# (`climbing=route*`: one line of bolts, three hundred of them mapped one by
+# one), not a shop, a guide's office, an artificial wall or a signpost that
+# mentions the sport. A named cliff with no sport tag counts only when its
+# name says falesia or Klettergarten.
+CRAG_KINDS = {"crag", "area"}
+ROCKY = {"cliff", "rock", "bare_rock", "stone", "arete"}
+NOT_A_CRAG = ("man_made", "club", "shop", "office", "amenity", "highway",
+              "landuse", "information", "railway")
+NOT_A_CRAG_VALUE = {"route", "route_bottom", "route_top", "abseil", "decent", "descent",
+                    "scramble_route", "gym", "wall"}
+GYM_WORDS = re.compile(r"halle\b|indoor|zentrum|stadium|centro d.?arrampicata|"
+                       r"palestra (?:di |d')?arrampicata|\bboulder\b|rockarena|"
+                       r"vertikale|\bcube\b|\bguide\b")
+CRAG_WORDS = re.compile(r"falesi|klettergarten|palestra di roccia|\bcrag\b|arrampicat")
+CRAG_TAGS = ("name", "ele", "natural", "sport", "climbing", "website", "description",
+             "site", "type")
 WATERWAY = {"river", "stream", "canal", "riverbank"}
 PLACES = {"city", "town", "village", "hamlet", "suburb", "quarter", "neighbourhood", "locality"}
 KEEP_TAGS = ("highway", "name", "oneway", "junction", "lanes", "bridge", "tunnel", "railway",
@@ -126,6 +150,64 @@ def hut_type(t):
     if t.get("amenity") == "shelter" and t.get("shelter_type") == "basic_hut":
         return "basic_hut"
     return ""
+
+
+def fold(s):
+    n = unicodedata.normalize("NFKD", s or "")
+    return "".join(c for c in n if not unicodedata.combining(c)).lower()
+
+
+def is_crag(t):
+    """A crag, a sector of one, or an area of them -- and nothing else that
+    carries the word climbing."""
+    c = t.get("climbing")
+    if c in NOT_A_CRAG_VALUE or t.get("indoor") in ("yes", "only"):
+        return False
+    if t.get("building") not in (None, "no"):
+        return False
+    leisure = t.get("leisure")
+    if leisure == "sports_centre" and GYM_WORDS.search(fold(t.get("name"))):
+        return False
+    if c in CRAG_KINDS:
+        return True
+    if leisure not in (None, "sports_centre", "pitch"):
+        return False
+    if any(k in t for k in NOT_A_CRAG) or t.get("type") == "route":
+        return False
+    if t.get("tourism") in ("information", "viewpoint"):
+        return False
+    nat = t.get("natural")
+    if t.get("sport") != "climbing" and c != "yes":
+        return nat in ROCKY and bool(CRAG_WORDS.search(fold(t.get("name"))))
+    if leisure == "sports_centre":
+        return True
+    if leisure == "pitch":
+        return nat in ROCKY  # a pitch is an artificial wall unless it stands on rock
+    return nat in ROCKY or nat is None
+
+
+def crag_tags(t):
+    """What the crag layer keeps of the tags: the identity, and every
+    climbing:* detail (grades, aspect, rock, length, routes, styles)."""
+    return {k: v for k, v in dict(t).items() if k in CRAG_TAGS or k.startswith("climbing:")}
+
+
+def along_midpoint(pts):
+    """The point half way along a line of (lat, lon): where a cliff line
+    "is", better than the mean of its corners when the wall bends."""
+    if len(pts) == 1:
+        return pts[0]
+    cum = [0.0]
+    for a, b in zip(pts, pts[1:]):
+        cum.append(cum[-1] + math.hypot((b[0] - a[0]) * MLAT, (b[1] - a[1]) * MLON))
+    half = cum[-1] / 2
+    for i in range(1, len(pts)):
+        if cum[i] >= half:
+            seg = cum[i] - cum[i - 1]
+            f = (half - cum[i - 1]) / seg if seg > 0 else 0.0
+            a, b = pts[i - 1], pts[i]
+            return (a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f)
+    return pts[-1]
 
 
 def hut_tokens(name):
@@ -205,6 +287,10 @@ class Members(osmium.SimpleHandler):
         self.want = {}
         self.hike_ref = {}  # way id -> the marked trail's number (route=hiking relations)
         self.bike_ref = {}
+        # A crag drawn as a site relation (its routes as members) or an area
+        # of crags: the relation is the thing, and a member's parent.
+        self.crag_rel = {}     # relation id -> {"tags", "members": [(type, ref)]}
+        self.crag_member = {}  # (type, ref) -> the first crag relation it is in
 
     def relation(self, r):
         t = r.tags
@@ -221,6 +307,10 @@ class Members(osmium.SimpleHandler):
                     if m.type == "w":
                         self.bike_ref.setdefault(m.ref, ref)
             return
+        if "crags" in KEEP and "name" in t and is_crag(t):
+            self.crag_rel[r.id] = {"tags": crag_tags(t), "members": [(m.type, m.ref) for m in r.members]}
+            for m in r.members:
+                self.crag_member.setdefault((m.type, m.ref), r.id)
         if t.get("natural") == "water" or t.get("waterway") == "riverbank":
             layer = "water"
         elif t.get("landuse") == "forest" or t.get("natural") in WOOD_N:
@@ -247,9 +337,19 @@ class H(osmium.SimpleHandler):
         # AND a building, and the building is only read long after the node.
         self.huts = []        # (lat, lon, tokens, element)
         self.hut_poly = 0
+        # Crags are buffered too: a sector's parent is a relation read last,
+        # and a site relation stands where its members are.
+        self.crag_rel, self.crag_member = mem.crag_rel, mem.crag_member
+        self.crags = []
+        self.crag_pos = {}     # (type, ref) of a relation member -> (lat, lon)
+        self.crag_relpos = {}  # relation id -> (lat, lon), for the multipolygons
+        self.crag_routes = {}  # relation id -> routes among its members
+        self.crag_done = set() # relations placed by the area assembler
 
     def node(self, n):
         t = n.tags
+        if "crags" in KEEP:
+            self.crag_node(n)
         pl = t.get("place")
         kind = None
         if t.get("natural") == "peak":
@@ -274,6 +374,83 @@ class H(osmium.SimpleHandler):
             else:
                 self.sink.add("places", {"type": "node", "id": n.id, "lat": lat, "lon": lon,
                                               "tags": {"name": t["name"], "place": pl, "population": t.get("population", "")}})
+
+    def crag_node(self, n):
+        t = n.tags
+        key = ("n", n.id)
+        rid = self.crag_member.get(key)
+        if rid is not None:
+            self.crag_pos[key] = (n.location.lat, n.location.lon)
+            if t.get("climbing") in ("route", "route_bottom", "route_top"):
+                self.crag_routes[rid] = self.crag_routes.get(rid, 0) + 1
+        if "name" in t and is_crag(t):
+            self.add_crag(n.location.lat, n.location.lon, t, "node", n.id)
+
+    def crag_way(self, w):
+        t = w.tags
+        key = ("w", w.id)
+        member = key in self.crag_member
+        own = "name" in t and is_crag(t)
+        if not member and not own:
+            return
+        pts = [(n.location.lat, n.location.lon) for n in w.nodes if n.location.valid()]
+        if not pts:
+            return
+        if member:
+            self.crag_pos[key] = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+            if t.get("climbing") in ("route", "route_bottom", "route_top"):
+                rid = self.crag_member[key]
+                self.crag_routes[rid] = self.crag_routes.get(rid, 0) + 1
+        if own:
+            if len(pts) >= 3 and w.nodes[0].ref == w.nodes[-1].ref:
+                lat, lon = centroid([(0.0, 0.0, p[0], p[1]) for p in pts])
+            else:
+                lat, lon = along_midpoint(pts)
+            self.add_crag(lat, lon, t, "way", w.id)
+
+    def add_crag(self, lat, lon, t, typ, oid, routes=0):
+        """One crag, as it was mapped; the layer script merges the doubles."""
+        if not (S <= lat <= N and W <= lon <= E):
+            return
+        el = {"type": typ, "id": oid, "lat": round(lat, 7), "lon": round(lon, 7),
+              "tags": crag_tags(t)}
+        if routes:
+            el["routes"] = routes
+        self.crags.append(el)
+
+    def place_crag_relations(self):
+        """A site relation has no geometry of its own: it stands where its
+        members are -- the mean of the routes it groups (a crag) or of the
+        crags it groups (an area). Three rounds, since an area's members can be
+        relations themselves. Then every crag that is a member of a named
+        relation learns its parent. Returns how many relations had nothing
+        placeable in them."""
+        pos = dict(self.crag_relpos)
+        pending = {rid: rel for rid, rel in self.crag_rel.items() if rid not in self.crag_done}
+        for _ in range(3):
+            for rid, rel in list(pending.items()):
+                pts = []
+                for mtype, ref in rel["members"]:
+                    p = self.crag_pos.get((mtype, ref)) if mtype in ("n", "w") else pos.get(ref)
+                    if p:
+                        pts.append(p)
+                if pts:
+                    pos[rid] = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
+                    del pending[rid]
+        for rid, (lat, lon) in pos.items():
+            if rid in self.crag_done:
+                continue
+            self.add_crag(lat, lon, self.crag_rel[rid]["tags"], "relation", rid,
+                          routes=self.crag_routes.get(rid, 0))
+        letter = {"node": "n", "way": "w", "relation": "r"}
+        for el in self.crags:
+            rid = self.crag_member.get((letter[el["type"]], el["id"]))
+            if rid is None:
+                continue
+            name = self.crag_rel[rid]["tags"].get("name")
+            if name and name != el["tags"].get("name"):
+                el["parent"] = name
+        return len(pending)
 
     def add_hut(self, lat, lon, name, ele, typ, oid, ht=""):
         """One hut, unless the same one is already within 100 m under a name
@@ -313,6 +490,18 @@ class H(osmium.SimpleHandler):
                 if S <= lat <= N and W <= lon <= E:
                     self.add_hut(lat, lon, t["name"], ele_of(t), "relation",
                                  -a.orig_id(), hut_type(t))
+        if "crags" in KEEP and "name" in t and is_crag(t):
+            big = None
+            for ring in a.outer_rings():
+                pts = [(0.0, 0.0, n.location.lat, n.location.lon)
+                       for n in ring if n.location.valid()]
+                if len(pts) >= 4 and (big is None or len(pts) > len(big)):
+                    big = pts
+            if big is not None:
+                lat, lon = centroid(big)
+                self.crag_relpos[a.orig_id()] = (lat, lon)
+                self.crag_done.add(a.orig_id())
+                self.add_crag(lat, lon, t, "relation", a.orig_id())
         if t.get("natural") == "water" or t.get("waterway") == "riverbank":
             layer = "water"
         elif t.get("leisure") in PARKS_L or t.get("landuse") in PARKS_LU:
@@ -349,6 +538,8 @@ class H(osmium.SimpleHandler):
 
     def way(self, w):
         self.seen += 1
+        if "crags" in KEEP:
+            self.crag_way(w)
         if w.id in self.want:
             pts = []
             for n in w.nodes:
@@ -487,6 +678,17 @@ for _lat, _lon, _t, el in h.huts:
 if h.huts:
     print(f"huts: {len(h.huts)} kept, {h.hut_poly} of them from a building or a "
           f"multipolygon (the rest are nodes)")
+if "crags" in KEEP:
+    unplaced = h.place_crag_relations()
+    for el in h.crags:
+        sink.add("crags", el)
+    by = {}
+    for el in h.crags:
+        by[el["type"]] = by.get(el["type"], 0) + 1
+    print(f"crags: {len(h.crags)} named crags, sectors and areas kept ("
+          + ", ".join(f"{v} {k}s" for k, v in sorted(by.items())) + f"), "
+          f"{sum(1 for el in h.crags if el.get('parent'))} inside a named relation, "
+          f"{unplaced} site relations with nothing placeable in them")
 sink.close()
 for k in KEEP:
     p = out / f"{k}.json"

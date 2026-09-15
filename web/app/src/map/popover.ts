@@ -9,7 +9,7 @@ export interface PopoverState {
   y: number;
   name: string;
   loading: boolean;
-  feature?: { name: string; kind: string };
+  feature?: { name: string; kind: string; detail?: string };
   avoidedId?: string;
   viaIndex?: number;
 }

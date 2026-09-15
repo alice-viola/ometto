@@ -52,6 +52,16 @@ const THEMES: { id: ThemeChoice; label: string; icon: string }[] = [
           :disabled="!available.pois"
         />
         <Toggle
+          v-model="layers.crags"
+          label="Climbing crags"
+          :hint="
+            available.crags
+              ? 'Grade span and aspect where OpenStreetMap has them. Dense around Arco, thin elsewhere.'
+              : 'Not published yet.'
+          "
+          :disabled="!available.crags"
+        />
+        <Toggle
           v-model="layers.lifts"
           label="Lifts"
           :hint="available.lifts ? 'Cable cars, gondolas and chair lifts.' : 'Not published yet.'"

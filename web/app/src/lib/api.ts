@@ -170,7 +170,7 @@ export const api = {
     void mock().then((k) => k.recordHistory(entry));
   },
 
-  layer(name: 'region' | 'sat' | 'pois' | 'huts' | 'lifts'): Promise<FeatureCollection> {
+  layer(name: 'region' | 'sat' | 'pois' | 'huts' | 'lifts' | 'crags'): Promise<FeatureCollection> {
     if (MOCK) return mock().then((k) => k.layer(name));
     return request<FeatureCollection>(`/api/layers/${name}`);
   },

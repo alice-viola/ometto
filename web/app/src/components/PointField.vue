@@ -381,7 +381,7 @@ onBeforeUnmount(() => {
       >
         <div class="flex items-baseline gap-2">
           <Icon
-            :name="r.kind === 'peak' ? 'peak' : r.kind === 'hut' ? 'hut' : r.kind === 'pass' ? 'pass' : r.kind === 'street' ? 'street' : r.kind === 'trail' ? 'trail' : 'place'"
+            :name="r.kind === 'peak' ? 'peak' : r.kind === 'hut' ? 'hut' : r.kind === 'pass' ? 'pass' : r.kind === 'crag' ? 'crag' : r.kind === 'street' ? 'street' : r.kind === 'trail' ? 'trail' : 'place'"
             :size="14"
             class="relative top-0.5 text-muted"
           />
@@ -389,7 +389,7 @@ onBeforeUnmount(() => {
           <span v-if="r.ele" class="text-[12px] text-muted">{{ fmtElevation(r.ele) }}</span>
         </div>
         <div class="ml-[22px] truncate text-[11.5px] text-faint">
-          {{ KIND_LABELS[r.kind] ?? r.kind }}<template v-if="r.locality"> · {{ r.locality }}</template>
+          {{ KIND_LABELS[r.kind] ?? r.kind }}<template v-if="r.detail"> · {{ r.detail }}</template><template v-if="r.locality"> · {{ r.locality }}</template>
         </div>
       </li>
       <li

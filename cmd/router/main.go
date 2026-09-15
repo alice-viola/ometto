@@ -67,7 +67,8 @@ func main() {
 	tGraph := time.Since(t1)
 	t2 := time.Now()
 	gc, err := route.BuildGeocoder(g, *placesP, *poisP,
-		filepath.Join(*layersP, "pois.geojson"), filepath.Join(*layersP, "huts.geojson"))
+		filepath.Join(*layersP, "pois.geojson"), filepath.Join(*layersP, "huts.geojson"),
+		filepath.Join(*layersP, "crags.geojson"))
 	if err != nil {
 		log.Fatalf("ometto: geocoder: %v", err)
 	}

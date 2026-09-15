@@ -158,11 +158,13 @@ def main(argv):
         "satTrails": feats("web/public/sat.geojson"),
         "pois": feats("web/public/pois.geojson"),
         "huts": feats("web/public/huts.geojson"),
+        "crags": feats("web/public/crags.geojson"),
         "places": els(f"data/osm-{region}/places.json"),
         "basemap": archive,
         "files": {p: size(ROOT / p) for p in (
             f"web/public/{region}.json", "web/public/sat.geojson", "web/public/pois.geojson",
-            "web/public/huts.geojson", "web/public/lifts.geojson", "web/public/region.geojson",
+            "web/public/huts.geojson", "web/public/crags.geojson", "web/public/lifts.geojson",
+            "web/public/region.geojson",
             f"web/tiles/{region}.pmtiles", "web/tiles/styles/light.json", "web/tiles/styles/dark.json",
         )},
     }
@@ -170,7 +172,7 @@ def main(argv):
     out.write_text(json.dumps(info, indent=2) + "\n")
     print(f"wrote {out} ({out.stat().st_size} bytes)")
     for k in ("region", "buildDate", "osmExtractDate", "satCadastreDate", "stretches",
-              "junctions", "lifts", "satGraded", "pois", "huts", "places"):
+              "junctions", "lifts", "satGraded", "pois", "huts", "crags", "places"):
         print(f"  {k}: {info[k]}")
     if archive:
         print(f"  basemap: {archive['bytes']/1e6:.1f} MB, z{archive['minzoom']}-{archive['maxzoom']}, "

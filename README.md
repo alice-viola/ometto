@@ -7,7 +7,9 @@ stretches, every one of them with an elevation — and searched for five kinds o
 bike, hike, car+hike and bike+hike. Trails carry the SAT grades **T / E / EE / EEA**, with an
 opt-in **Alpine** grade above them for ground no signpost describes. A route answers with its
 time, its climb, an elevation profile, turn-by-turn steps in the vocabulary of the mode you
-are in, and the grade of the hardest thing it makes you walk.
+are in, and the grade of the hardest thing it makes you walk. Climbing crags are on the map and in
+the search too, as far as OpenStreetMap has them, so the walk in to one is a car+hike plan like any
+other.
 
 **[Queen](https://queenmq.com) sits between the click and the search.** Every request is
 pushed to the `routes` queue and answered on the `answers` queue; the broker's KV holds each
@@ -98,5 +100,7 @@ club's walking rule with marked trails preferred. Elevation is a surface model, 
 shape of a profile rather than its last metre. SAT grades stop at the border of the province
 of Trento; north of it the grade comes from OpenStreetMap. There is no real-time anything —
 no traffic, no closures, no snow, no lift or bus timetable — and no accounts: a browser is a
-32-hex id in its own local storage. The page says as much on first visit, and it means it.
+32-hex id in its own local storage. Crags come from OpenStreetMap alone: dense around Arco, thin
+elsewhere, their grades whatever a mapper wrote; the app takes you to the wall and stops there. The
+page says as much on first visit, and it means it.
 

@@ -117,7 +117,10 @@ async function saveFavourite() {
             <div class="mt-0.5 truncate text-[11px] text-faint" :class="isCompact ? 'text-[12px]' : ''">
               <template v-if="state.avoidedId">Avoided</template>
               <template v-else-if="state.viaIndex !== undefined">On your route</template>
-              <template v-else-if="state.feature">{{ state.feature.kind.replace(/_/g, ' ') }}</template>
+              <template v-else-if="state.feature"
+                >{{ state.feature.kind.replace(/_/g, ' ')
+                }}<template v-if="state.feature.detail"> · {{ state.feature.detail }}</template></template
+              >
               <template v-else>{{ lat.toFixed(4) }}, {{ lon.toFixed(4) }}</template>
             </div>
           </div>

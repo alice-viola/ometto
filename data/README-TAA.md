@@ -33,11 +33,11 @@ HUTS="$SCRATCH/pat/rifugi/Rifugi e Bivacchi"
 # 1. the administrative boundary and the region's bbox            (2.5 s)
 python3 tools/region-boundary.py $PBF web/public/region.geojson web/public/region-bbox.json
 
-# 2. the OSM layers for the whole region, roads and the two point layers
+# 2. the OSM layers for the whole region, roads and the three point layers
 #    (water only for the Lake Garda check; no buildings, no landuse)  (45 s)
 python3 tools/pbf-layers.py $PBF data/osm-taa \
         45.672867,10.38184,47.092149,12.477975 "Trentino-Alto Adige" \
-        roads,lifts,places,pois,water
+        roads,lifts,places,pois,crags,water
 # one layer on its own, when only that one needs rebuilding          (25 s)
 # (the fifth argument is what gets written, so roads.json is not touched)
 python3 tools/pbf-layers.py $PBF data/osm-taa \
@@ -59,6 +59,9 @@ python3 tools/sat-join.py $SAT web/public/taa.json web/public/sat.geojson --geom
 # 6. peaks, passes and huts                                          (1.4 s)
 python3 tools/points-layers.py data/osm-taa/pois.json "$HUTS" \
         web/public/pois.geojson web/public/huts.geojson
+# 6b. the climbing crags: one point per wall, sectors with their wall's name,
+#     grades and aspect normalised, the base's height from the DEM        (1.5 s)
+python3 tools/crags-layer.py data/osm-taa/crags.json web/public/crags.geojson
 
 # 7. the passenger lifts as a drawable layer                        (0.03 s)
 python3 tools/lifts-layer.py data/osm-taa/lifts.json web/public/lifts.geojson
@@ -112,8 +115,10 @@ writes a fresh file without `z` and without the SAT fields.
 | `web/public/sat.geojson` | 3.9 MB | 3,879 catalogue trails, WGS84, simplified to 10 m, 151,298 points |
 | `web/public/pois.geojson` | 1.18 MB | 6,190 points: 4,686 peaks, 813 passes, 691 huts |
 | `web/public/huts.geojson` | 120 KB | 579 huts: the Province's 191, plus the 388 OSM maps as a building |
+| `web/public/crags.geojson` | 0.08 MB | 316 climbing points: 270 crags, 31 sectors named after their wall, 15 climbing areas; a grade span on 44, an aspect on 27, a route count on 12 |
 | `data/osm-taa/places.json` | 1.15 MB | 8,753 named places for the geocoder |
 | `data/osm-taa/pois.json` | 0.81 MB | 6,167 peaks, passes and huts, OSM only |
+| `data/osm-taa/crags.json` | 0.07 MB | 366 named crags, sectors and climbing areas as OSM has them, before the merge |
 | `data/osm-taa/lifts.json` | 0.3 MB | the 509 lifts with their tags, the input to steps 3 and 7 |
 | `data/osm-taa/roads.json`, `water.json` | 245 + 22 MB | intermediates; only step 3 and the Garda check read them |
 

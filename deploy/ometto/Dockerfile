@@ -46,6 +46,7 @@ COPY web/public/region.geojson    /app/web/public/
 COPY web/public/sat.geojson       /app/web/public/
 COPY web/public/pois.geojson      /app/web/public/
 COPY web/public/huts.geojson      /app/web/public/
+COPY web/public/crags.geojson     /app/web/public/
 COPY web/public/lifts.geojson     /app/web/public/
 COPY web/tiles/                   /app/web/tiles/
 COPY data/osm-taa/places.json     /app/data/osm-taa/places.json

@@ -1,5 +1,5 @@
 /** Point symbols drawn at runtime so they take the current ink colour. */
-export type IconKind = 'peak' | 'hut' | 'pass' | 'place';
+export type IconKind = 'peak' | 'hut' | 'pass' | 'crag' | 'place';
 
 const SIZE = 26; // device pixels, added at pixelRatio 2 -> 13 css px
 
@@ -34,6 +34,14 @@ export function makeIcon(kind: IconKind, ink: string, halo: string) {
       g.lineTo(23, 22);
       g.lineTo(3, 22);
       g.closePath();
+    } else if (kind === 'crag') {
+      // A wall: a block with a slanted top, the way a cliff reads from below.
+      g.moveTo(5, 21);
+      g.lineTo(5, 9);
+      g.lineTo(11, 4);
+      g.lineTo(21, 8);
+      g.lineTo(21, 21);
+      g.closePath();
     } else {
       g.arc(13, 13, 5.5, 0, Math.PI * 2);
     }
@@ -54,6 +62,16 @@ export function makeIcon(kind: IconKind, ink: string, halo: string) {
     // A lit window reads as shelter rather than as a generic building.
     g.fillStyle = halo;
     g.fillRect(11, 14, 4, 5);
+  }
+  if (kind === 'crag') {
+    // A crack down the face: rock, not a building.
+    g.strokeStyle = halo;
+    g.lineWidth = 1.6;
+    g.beginPath();
+    g.moveTo(13.5, 9);
+    g.lineTo(11.5, 13.5);
+    g.lineTo(13.5, 18.5);
+    g.stroke();
   }
 
   const img = g.getImageData(0, 0, SIZE, SIZE);

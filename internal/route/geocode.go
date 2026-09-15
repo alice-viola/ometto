@@ -1,8 +1,8 @@
 package route
 
-// The geocoder: one in-memory index over the OSM place nodes, the peaks, huts
-// and passes, every distinct street name per settlement, and every marked
-// trail number. Case- and accent-insensitive, prefix first and substring
+// The geocoder: one in-memory index over the OSM place nodes, the peaks, huts,
+// passes and crags, every distinct street name per settlement, and every
+// marked trail number. Case- and accent-insensitive, prefix first and substring
 // after, ranked by what a person means when they type three letters.
 
 import (
@@ -18,18 +18,21 @@ import (
 type Entry struct {
 	ID       string  `json:"id"`
 	Name     string  `json:"name"`
-	Kind     string  `json:"kind"` // place|peak|hut|pass|street|trail
+	Kind     string  `json:"kind"` // place|peak|hut|pass|crag|street|trail
 	Locality string  `json:"locality"`
 	Lat      float64 `json:"lat"`
 	Lon      float64 `json:"lon"`
 	Ele      float64 `json:"ele,omitempty"`
 	Place    string  `json:"place,omitempty"` // the OSM place type: city, village, hamlet
+	// Detail is the one line a crag answers with — its grade span, its aspect
+	// and how many routes it has — as far as the mapping says. Empty otherwise.
+	Detail string `json:"detail,omitempty"`
 
 	norm   string
 	alts   []string // the halves of a bilingual name, each a name in its own right
 	also   []string // the names of the rows merged into this one
 	toks   []string
-	weight float64 // population for a place, elevation for a summit
+	weight float64 // population for a place, elevation for a summit, routes for a crag
 }
 
 // Geocoder is the index.
@@ -352,14 +355,19 @@ func (gc *Geocoder) mergeDuplicateHuts(g *Graph) int {
 }
 
 // featureDoc is a served layer: a FeatureCollection of points with a name, a
-// kind (OSM) or a type (the Province register) and an elevation.
+// kind (OSM) or a type (the Province register) and an elevation. The crag
+// layer adds the wall a sector belongs to and what a climber asks first.
 type featureDoc struct {
 	Features []struct {
 		Properties struct {
-			Name string      `json:"name"`
-			Kind string      `json:"kind"`
-			Type string      `json:"type"`
-			Ele  json.Number `json:"ele"`
+			Name   string      `json:"name"`
+			Kind   string      `json:"kind"`
+			Type   string      `json:"type"`
+			Ele    json.Number `json:"ele"`
+			Parent string      `json:"parent"`
+			Grades string      `json:"grades"`
+			Aspect string      `json:"aspect"`
+			Routes json.Number `json:"routes"`
 		} `json:"properties"`
 		Geometry struct {
 			Type        string     `json:"type"`
@@ -400,7 +408,7 @@ func (gc *Geocoder) addGeoJSON(path string, g *Graph, refs []placeRef, locOf *pl
 			kind, name = "hut", titled("Bivacco", register(name))
 		}
 		switch kind {
-		case "peak", "hut", "pass", "parking":
+		case "peak", "hut", "pass", "parking", "crag":
 		default:
 			continue
 		}
@@ -415,10 +423,39 @@ func (gc *Geocoder) addGeoJSON(path string, g *Graph, refs []placeRef, locOf *pl
 			ID:   kind[:2] + ":" + strconv.Itoa(len(gc.entries)),
 			Name: name, Kind: kind, Lat: lat, Lon: lon, Ele: ele, weight: ele,
 		}
+		if kind == "crag" {
+			// "Settore B" is nothing without the wall it is on. The map draws
+			// it beside the wall; a list has to say so.
+			if p := strings.TrimSpace(f.Properties.Parent); p != "" && fold(p) != fold(name) {
+				ent.Name = name + " (" + p + ")"
+			}
+			// Ranked by size, not by height: a crag's elevation is where the
+			// walk ends, and the wall with three hundred routes is the one
+			// people mean.
+			routes, _ := f.Properties.Routes.Float64()
+			ent.weight = routes
+			ent.Detail = cragDetail(f.Properties.Grades, f.Properties.Aspect, int(routes))
+		}
 		x, y := g.R.XY(lat, lon)
 		ent.Locality = locOf.locality(refs, x, y, 5000)
 		gc.entries = append(gc.entries, ent)
 	}
+}
+
+// cragDetail is the line under a crag's name — "4a–7c · S · 62 routes" —
+// from whichever parts the mapping has.
+func cragDetail(grades, aspect string, routes int) string {
+	var parts []string
+	if g := strings.TrimSpace(grades); g != "" {
+		parts = append(parts, g)
+	}
+	if a := strings.TrimSpace(aspect); a != "" {
+		parts = append(parts, a)
+	}
+	if routes > 0 {
+		parts = append(parts, strconv.Itoa(routes)+" routes")
+	}
+	return strings.Join(parts, " · ")
 }
 
 // titled puts the category in front of a register name, unless the name
@@ -479,6 +516,10 @@ func (gc *Geocoder) build() {
 			// named "Ncisles - Regensburger - Firenze" or "Schlernhaus", and
 			// the word a person types first is the category.
 			e.toks = append(e.toks, "rifugio", "hutte", "hut", "baita")
+		case "crag":
+			// Likewise a crag: "falesia Nago" in one province, "Klettergarten"
+			// in the other, and the mapped name is rarely either.
+			e.toks = append(e.toks, "falesia", "crag", "klettergarten", "arrampicata")
 		}
 		for _, t := range e.toks {
 			gc.index = append(gc.index, tokRef{t, int32(i)})
@@ -738,7 +779,7 @@ func kindRank(k string) int {
 	switch k {
 	case "place":
 		return 4
-	case "hut", "peak", "pass":
+	case "hut", "peak", "pass", "crag":
 		return 3
 	case "street":
 		return 2

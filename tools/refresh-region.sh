@@ -74,8 +74,8 @@ BB="$( [ -f web/public/region-bbox.json ] && python3 -c "import json;b=json.load
 
 # 3 ---------------------------------------------------------------- the layers
 if want 3; then
-  say "3. OSM layers (roads, lifts, places, pois, water)"
-  py "tools/pbf-layers.py '$PBF' data/osm-$REGION '$BB' 'Trentino-Alto Adige' roads,lifts,places,pois,water"
+  say "3. OSM layers (roads, lifts, places, pois, crags, water)"
+  py "tools/pbf-layers.py '$PBF' data/osm-$REGION '$BB' 'Trentino-Alto Adige' roads,lifts,places,pois,crags,water"
 fi
 
 # 4 ------------------------------------------------------------- the map file
@@ -108,8 +108,9 @@ fi
 
 # 7 ------------------------------------------------------------ peaks and huts
 if want 7; then
-  say "7. peaks, passes and huts"
+  say "7. peaks, passes, huts and crags"
   py "tools/points-layers.py data/osm-$REGION/pois.json '$HUTS' web/public/pois.geojson web/public/huts.geojson"
+  py "tools/crags-layer.py data/osm-$REGION/crags.json web/public/crags.geojson"
 fi
 
 # 8 ------------------------------------------------------------------- lifts

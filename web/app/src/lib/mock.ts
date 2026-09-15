@@ -355,7 +355,7 @@ export function clearHistory(): Promise<void> {
   return delay(undefined, 60);
 }
 
-export function layer(name: 'region' | 'sat' | 'pois' | 'huts' | 'lifts'): Promise<FeatureCollection> {
+export function layer(name: 'region' | 'sat' | 'pois' | 'huts' | 'lifts' | 'crags'): Promise<FeatureCollection> {
   if (name === 'region') {
     const ring = [
       [10.38, 45.67], [11.0, 45.68], [11.62, 45.78], [12.05, 46.02], [12.45, 46.35],

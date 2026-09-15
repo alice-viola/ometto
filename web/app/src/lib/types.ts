@@ -6,7 +6,7 @@ export type LegMode = 'car' | 'bike' | 'hike' | 'lift';
 /** SAT grades, plus Alpine: unmarked ground above the marked-path scale. */
 export type Grade = 'T' | 'E' | 'EE' | 'EEA' | 'A';
 export type LiftType = 'cable_car' | 'gondola' | 'chair_lift' | 'mixed_lift';
-export type PlaceKind = 'place' | 'peak' | 'hut' | 'pass' | 'street' | 'trail';
+export type PlaceKind = 'place' | 'peak' | 'hut' | 'pass' | 'crag' | 'street' | 'trail';
 
 export interface LngLat {
   lat: number;
@@ -32,6 +32,8 @@ export interface GeocodeResult {
   lat: number;
   lon: number;
   ele?: number;
+  /** A crag's grade span, aspect and route count, as far as the mapping says. */
+  detail?: string;
 }
 
 export interface ReverseResult {

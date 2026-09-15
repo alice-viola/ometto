@@ -1,6 +1,8 @@
 package route
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"ometto/internal/city"
@@ -194,5 +196,63 @@ func TestMergeDuplicateHuts(t *testing.T) {
 	}
 	if len(gc.Search("rifugio", 10)) != 3 {
 		t.Errorf("the category word should still list all three huts")
+	}
+}
+
+func TestCragSearch(t *testing.T) {
+	gc := NewGeocoder([]*Entry{
+		{ID: "1", Name: "Massone", Kind: "crag", weight: 300, Lat: 45.93, Lon: 10.9},
+		{ID: "2", Name: "Settore Basso (Massone)", Kind: "crag", weight: 40, Lat: 45.931, Lon: 10.9},
+		{ID: "3", Name: "Massone", Kind: "place", Place: "locality", Lat: 45.93, Lon: 10.91},
+		{ID: "4", Name: "Rifugio Massone", Kind: "hut", weight: 1200},
+	})
+	// The category word lists every crag, the biggest first, the way
+	// "rifugio" lists the huts.
+	got := gc.Search("falesia", 5)
+	if len(got) != 2 || got[0].Name != "Massone" || got[1].Kind != "crag" {
+		t.Fatalf("falesia -> %v", names(got))
+	}
+	for _, q := range []string{"falesia massone", "klettergarten massone", "crag massone"} {
+		got = gc.Search(q, 5)
+		if len(got) == 0 || got[0].Name != "Massone" || got[0].Kind != "crag" {
+			t.Errorf("%q -> %v %v", q, names(got), kinds(got))
+		}
+	}
+	// A bare name still means the place, as everywhere else.
+	if got = gc.Search("massone", 5); len(got) == 0 || got[0].Kind != "place" {
+		t.Errorf("massone -> %v", kinds(got))
+	}
+}
+
+func TestCragLayerIndexed(t *testing.T) {
+	r := &Region{Name: "crags", Lat0: 46, Lon0: 11, MPerDegLat: 111000, MPerDegLon: 77000}
+	r.Pts = [][2]float64{{0, 0}, {10, 0}}
+	r.Stretches = []*city.Stretch{{ID: "s", Pts: [][2]float64{{0, 0}, {10, 0}}, Cum: []float64{0, 10}, Len: 10, A: 0, B: 1, Cls: "path", MTB: -1}}
+	r.Sat = []Sat{{}}
+	g := Build(r)
+	path := filepath.Join(t.TempDir(), "crags.geojson")
+	doc := `{"type":"FeatureCollection","features":[
+	 {"type":"Feature","properties":{"name":"Massone","kind":"crag","ele":180,"grades":"4a–8b","aspect":"S","routes":300},"geometry":{"type":"Point","coordinates":[10.9,45.93]}},
+	 {"type":"Feature","properties":{"name":"Settore B","kind":"crag","parent":"Massone","grades":"6a–7b"},"geometry":{"type":"Point","coordinates":[10.901,45.931]}},
+	 {"type":"Feature","properties":{"name":"Hexentanz","kind":"crag","routes":62},"geometry":{"type":"Point","coordinates":[11.6,46.5]}}]}`
+	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gc := &Geocoder{}
+	gc.addGeoJSON(path, g, nil, newPlaceGrid(nil, 2000))
+	gc.build()
+	got := gc.Search("massone", 5)
+	if len(got) != 2 || got[0].Name != "Massone" || got[1].Name != "Settore B (Massone)" {
+		t.Fatalf("massone -> %v", names(got))
+	}
+	if got[0].Detail != "4a–8b · S · 300 routes" || got[1].Detail != "6a–7b" {
+		t.Errorf("details %q, %q", got[0].Detail, got[1].Detail)
+	}
+	if got[0].Ele != 180 {
+		t.Errorf("the base's height is still worth showing: ele %v", got[0].Ele)
+	}
+	// Ranked by routes, not by height.
+	if got = gc.Search("falesia", 5); len(got) != 3 || got[0].Name != "Massone" || got[1].Name != "Hexentanz" {
+		t.Errorf("falesia -> %v, want the biggest walls first", names(got))
 	}
 }

@@ -83,7 +83,7 @@ async function commit(f: Favourite) {
         <template v-else>
           <div class="flex items-center gap-2">
             <Icon
-              :name="f.kind === 'peak' ? 'peak' : f.kind === 'hut' ? 'hut' : f.kind === 'pass' ? 'pass' : 'place'"
+              :name="f.kind === 'peak' ? 'peak' : f.kind === 'hut' ? 'hut' : f.kind === 'pass' ? 'pass' : f.kind === 'crag' ? 'crag' : 'place'"
               :size="15"
               class="shrink-0 text-muted"
             />

@@ -10,6 +10,7 @@ export const SRC = {
   region: 'trp-region',
   sat: 'trp-sat',
   pois: 'trp-pois',
+  crags: 'trp-crags',
   lifts: 'trp-lifts',
   stations: 'trp-stations',
   alt: 'trp-alt',
@@ -31,6 +32,8 @@ export const LYR = {
   liftsLabel: 'trp-lifts-label',
   poi: 'trp-poi',
   poiPlace: 'trp-poi-place',
+  crag: 'trp-crag',
+  cragSector: 'trp-crag-sector',
   altHit: 'trp-alt-hit',
   alt: 'trp-alt-line',
   routeCasing: 'trp-route-casing',
@@ -355,6 +358,74 @@ export function addPois(map: MlMap, fc: FeatureCollection, t: Tokens): void {
     layout: common,
     paint,
   } as never, underRoutes);
+}
+
+/**
+ * The crags: one symbol per wall, labelled with what a climber asks first —
+ * the grade span and the aspect — when the mapping has them. A sector that
+ * belongs to a named wall waits for a closer zoom: at Arco a wall has ten.
+ */
+export function addCrags(map: MlMap, fc: FeatureCollection, t: Tokens): void {
+  const icon = 'trp-crag';
+  if (map.hasImage(icon)) map.removeImage(icon);
+  map.addImage(icon, makeIcon('crag', t.muted, t.surface), { pixelRatio: 2 });
+  const labelled = withCragLabels(fc);
+  if (map.getSource(SRC.crags)) {
+    (map.getSource(SRC.crags) as GeoJSONSource).setData(labelled as never);
+    return;
+  }
+  map.addSource(SRC.crags, { type: 'geojson', data: labelled as never });
+  const layout = {
+    'icon-image': icon,
+    'icon-size': ['interpolate', ['linear'], ['zoom'], 9, 0.7, 13, 1],
+    'text-field': ['get', 'label'],
+    'text-font': ['Noto Sans Regular'],
+    'text-size': ['interpolate', ['linear'], ['zoom'], 9, 10, 14, 12],
+    'text-anchor': 'top',
+    'text-offset': [0, 0.85],
+    'text-optional': true,
+    'text-padding': 9,
+  };
+  const paint = {
+    'text-color': t.ink,
+    'text-halo-color': t.surface,
+    'text-halo-width': 1.6,
+    'icon-opacity': 0.92,
+  };
+  const underRoutes = beforeRoutes(map);
+  map.addLayer({
+    id: LYR.crag,
+    type: 'symbol',
+    source: SRC.crags,
+    minzoom: 10,
+    filter: ['!', ['has', 'parent']],
+    layout,
+    paint,
+  } as never, underRoutes);
+  map.addLayer({
+    id: LYR.cragSector,
+    type: 'symbol',
+    source: SRC.crags,
+    minzoom: 13,
+    filter: ['has', 'parent'],
+    layout,
+    paint,
+  } as never, underRoutes);
+}
+
+/** The label a crag draws, and the order that decides who wins a collision. */
+function withCragLabels(fc: FeatureCollection): FeatureCollection {
+  const ranked = (fc.features ?? []).map((f) => {
+    const p = f.properties ?? {};
+    const name = String(p.name ?? '');
+    const sub = [p.grades, p.aspect].filter(Boolean).join(' · ');
+    const label = sub ? `${name}  ${sub}` : name;
+    // The biggest walls first, the sectors last: drawn earlier, so they win.
+    const rank = (p.parent ? 1e6 : 0) - (Number(p.routes) || 0) - (p.grades ? 1 : 0);
+    return { feature: { ...f, properties: { ...p, label } }, rank };
+  });
+  ranked.sort((a, b) => a.rank - b.rank);
+  return { type: 'FeatureCollection', features: ranked.map((r) => r.feature) };
 }
 
 /**

@@ -182,6 +182,21 @@ export const KIND_LABELS: Record<string, string> = {
   peak: 'Peak',
   hut: 'Hut',
   pass: 'Pass',
+  crag: 'Crag',
   street: 'Street',
   trail: 'Trail',
 };
+
+/**
+ * What a climber asks first about a crag, from the layer's properties:
+ * "4a–7c · S · limestone · 62 routes", with whichever parts the mapping has.
+ */
+export function cragDetail(p: Record<string, unknown>): string {
+  const parts: string[] = [];
+  for (const key of ['grades', 'aspect', 'rock'] as const) {
+    if (p[key]) parts.push(String(p[key]));
+  }
+  const routes = Number(p.routes);
+  if (routes > 0) parts.push(`${routes} routes`);
+  return parts.join(' · ');
+}

@@ -29,7 +29,7 @@ const SOURCES = [
   {
     name: 'OpenStreetMap contributors',
     href: 'https://www.openstreetmap.org/copyright',
-    note: 'Roads, paths, lifts, huts and place names. Open Database Licence.',
+    note: 'Roads, paths, lifts, huts, crags and place names. Open Database Licence.',
   },
   {
     name: 'SAT and the Province of Trento',
@@ -121,6 +121,11 @@ const SOURCES = [
         </li>
         <li>
           Seasons are not modelled. A summer path and a winter one are the same line on this map.
+        </li>
+        <li>
+          Climbing crags come from OpenStreetMap alone: dense around Arco, thin elsewhere, and a
+          grade span is whatever a mapper wrote. This will take you to the wall; it is not a
+          guidebook.
         </li>
       </ul>
     </div>
