@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
-import maplibregl, { type LngLatLike, type Map as MlMap, type Marker } from 'maplibre-gl';
+import maplibregl, { type LngLatLike, type Map as MlMap, type Marker, type MapOptions } from 'maplibre-gl';
 import mlcontour from 'maplibre-contour';
 import { DEM_MAXZOOM, REGION_BOUNDS, loadStyleSpec, readTokens, type Tokens } from '../map/style';
 import { appConfig, loadConfig } from '../lib/config';
@@ -152,6 +152,23 @@ function endRouteDrag(m: MlMap, e: maplibregl.MapMouseEvent | maplibregl.MapTouc
 const host = ref<HTMLDivElement | null>(null);
 const map = shallowRef<MlMap | null>(null);
 const ready = ref(false);
+/**
+ * Why there is no map, when there is none. The map is WebGL, and a browser
+ * whose GPU process is off — Chrome after a bad update, a locked-down
+ * profile — cannot make a context: MapLibre throws from its constructor.
+ * That is no reason for the page to stop. The panel still asks and answers;
+ * the map's place says what is wrong and how to fix it.
+ */
+const mapUnavailable = ref('');
+function createMap(options: MapOptions): MlMap | null {
+  try {
+    return new maplibregl.Map(options);
+  } catch (e) {
+    mapUnavailable.value = String((e as Error)?.message ?? e);
+    console.warn('ometto: the map cannot start:', mapUnavailable.value);
+    return null;
+  }
+}
 const popover = ref<PopoverState | null>(null);
 let tokens: Tokens = readTokens();
 let markers: Marker[] = [];
@@ -595,7 +612,7 @@ onMounted(async () => {
   buildDem(cfg.terrain.url);
   const startStyle = await loadStyleSpec(isDark.value ? cfg.styles.dark : cfg.styles.light);
   if (!host.value) return;
-  const m = new maplibregl.Map({
+  const m = createMap({
     container: host.value,
     style: startStyle as never,
     bounds: [
@@ -619,6 +636,7 @@ onMounted(async () => {
     dragRotate: true,
     pitchWithRotate: true,
   });
+  if (!m) return;
   map.value = m;
   // A handle for checking the map from the console; harmless in production
   // and the only way to measure a frame on a phone.
@@ -841,7 +859,18 @@ defineExpose({
     }"
   >
     <div ref="host" class="absolute inset-0" style="background: var(--map-ground)" aria-label="Map of Trentino-Alto Adige" />
-    <FirstVisitHint />
+    <div v-if="mapUnavailable" class="absolute inset-0 z-10 grid place-items-center p-5" role="alert">
+      <div class="card max-w-[380px] px-4 py-3.5 text-[13px] leading-snug" :style="{ boxShadow: 'var(--shadow-2)' }">
+        <p class="font-medium">The map cannot be drawn in this browser.</p>
+        <p class="mt-1.5 text-muted">
+          It could not start WebGL, which the map needs. In Chrome, open
+          <span class="font-mono text-[12px]">chrome://gpu</span>: if WebGL is listed as unavailable, turn on
+          “Use graphics acceleration when available” under Settings → System, then quit and reopen the
+          browser. Routes still work without the map.
+        </p>
+      </div>
+    </div>
+    <FirstVisitHint v-else />
     <MapPopover v-if="popover" :state="popover" @close="closePopover" />
   </div>
 </template>
