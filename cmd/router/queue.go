@@ -674,8 +674,8 @@ func validJob(job routeJob) error {
 	switch {
 	case job.ID == "":
 		return errors.New("bad request payload: no request id")
-	case stops < 2 || stops > 6 || len(job.Req.Points) > 12:
-		return errors.New("bad request payload: points must hold between 2 and 6 stops")
+	case stops < 2 || stops > maxStops || len(job.Req.Points) > maxEntries:
+		return fmt.Errorf("bad request payload: points must hold between 2 and %d stops", maxStops)
 	case job.Req.Mode != "" && !route.ValidMode(job.Req.Mode):
 		return errors.New("bad request payload: unknown mode")
 	case job.Req.Grade != "" && route.SatGrade(job.Req.Grade) == 0:

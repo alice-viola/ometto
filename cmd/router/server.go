@@ -136,6 +136,11 @@ func (s *server) secure(next http.Handler) http.Handler {
 			h.Set("Cache-Control", "public, max-age=31536000, immutable")
 		case p == "/" || strings.HasSuffix(p, "/index.html"):
 			h.Set("Cache-Control", "no-cache")
+		case p == "/sw.js":
+			// A service worker that is served stale keeps a browser on an old
+			// app for as long as the cache lives, and there is no way in from
+			// the outside to correct it.
+			h.Set("Cache-Control", "no-cache")
 		}
 		next.ServeHTTP(w, r)
 	})
@@ -425,16 +430,16 @@ func (s *server) handleRoute(w http.ResponseWriter, r *http.Request) {
 			stops++
 		}
 	}
-	if stops < 2 || stops > 6 {
-		fail(w, 400, "points must hold between 2 and 6 stops (a point with via:true is not a stop)")
+	if stops < 2 || stops > maxStops {
+		fail(w, 400, fmt.Sprintf("points must hold between 2 and %d stops (a point with via:true is not a stop)", maxStops))
 		return
 	}
-	if len(req.Points) > 12 {
-		fail(w, 400, "points must hold at most 12 entries, vias included")
+	if len(req.Points) > maxEntries {
+		fail(w, 400, fmt.Sprintf("points must hold at most %d entries, vias included", maxEntries))
 		return
 	}
-	if len(req.Avoid) > 20 {
-		fail(w, 400, "avoid must hold at most 20 places")
+	if len(req.Avoid) > maxAvoids {
+		fail(w, 400, fmt.Sprintf("avoid must hold at most %d places", maxAvoids))
 		return
 	}
 	for i, a := range req.Avoid {

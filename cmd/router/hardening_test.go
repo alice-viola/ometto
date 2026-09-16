@@ -429,6 +429,13 @@ func TestConfigAndHeaders(t *testing.T) {
 	if cc := rec3.Header().Get("Cache-Control"); cc != "no-cache" {
 		t.Errorf("index cache-control is %q", cc)
 	}
+	// Nor may the service worker be kept: a stale one holds a browser on an
+	// old app with no way in from outside to correct it.
+	rec4 := httptest.NewRecorder()
+	s.routes().ServeHTTP(rec4, httptest.NewRequest("GET", "/sw.js", nil))
+	if cc := rec4.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("service worker cache-control is %q", cc)
+	}
 }
 
 // TestMetricsExposition: the numbers a dashboard needs, in the format it reads.
@@ -508,6 +515,7 @@ func TestStaticTypes(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "index.html"), []byte("<!doctype html><title>Ometto</title>"), 0o644)
 	os.WriteFile(filepath.Join(dir, "site.webmanifest"), []byte(`{"name":"Ometto"}`), 0o644)
 	os.WriteFile(filepath.Join(dir, "favicon.svg"), []byte("<svg/>"), 0o644)
+	os.WriteFile(filepath.Join(dir, "sw.js"), []byte("self.addEventListener('fetch',()=>{})"), 0o644)
 	os.MkdirAll(filepath.Join(dir, "assets"), 0o755)
 	os.WriteFile(filepath.Join(dir, "assets", "app-abc123.js"), []byte("console.log(1)"), 0o644)
 
@@ -518,6 +526,7 @@ func TestStaticTypes(t *testing.T) {
 		{"/site.webmanifest", "application/manifest+json", ""},
 		{"/favicon.svg", "image/svg+xml", ""},
 		{"/assets/app-abc123.js", "text/javascript; charset=utf-8", "public, max-age=31536000, immutable"},
+		{"/sw.js", "text/javascript; charset=utf-8", "no-cache"},
 		{"/", "text/html; charset=utf-8", "no-cache"},
 	} {
 		rec := httptest.NewRecorder()

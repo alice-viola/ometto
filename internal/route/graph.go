@@ -57,6 +57,7 @@ type Graph struct {
 	// a layer of their own, consulted only when a request asks for lifts, so
 	// that nothing else — snapping, components, a plain walk — can see them.
 	lift        csr
+	liftSecs    []liftSec // every section, its two stations sorted by height
 	LiftsLoaded int
 	LiftsLinked int
 
@@ -394,6 +395,15 @@ func (g *Graph) buildLifts() {
 		if !lf.Uphill || !up {
 			edges = append(edges, edge{b, a, int32(si), float32(ride), true})
 		}
+		// Which end is the valley station, for the chain: a section whose map
+		// carries no elevation has no downhill end and is left out of it.
+		if len(st.Z) >= 2 {
+			low, high := a, b
+			if !up {
+				low, high = b, a
+			}
+			g.liftSecs = append(g.liftSecs, liftSec{si: int32(si), low: low, high: high})
+		}
 		// The two links.
 		ends := 0
 		for _, n := range []int32{a, b} {
@@ -445,6 +455,75 @@ func (g *Graph) liftCost(si int32) float64 {
 		ride = g.R.Stretches[si].Len / liftSpeed(lf.Type)
 	}
 	return ride + liftBoardS
+}
+
+// liftSec is one section of an aerialway as the chain reads it: the stretch and
+// its two stations, the valley one first.
+type liftSec struct {
+	si        int32
+	low, high int32
+}
+
+// chainGap is how far apart the two ends of consecutive sections may be and
+// still be the same place. A lift system is mapped section by section, and
+// where one ends and the next begins is usually two OSM nodes a few dozen
+// metres apart — two buildings, or the two ends of a walk across a terrace —
+// never the same node.
+const chainGap = 250.0
+
+// liftChainBottom is the valley station of the chain a station stands in, or -1
+// when the station is already the bottom of it (or the map has no elevations to
+// tell). It follows the sections downhill: the section whose UPPER station is
+// this one, then the section below that, as far as they go.
+//
+// This is what the "multiple tracks of lift" rule needs to know. A gondola to a
+// mid station and a chairlift on to the top are two sections of one lift, and a
+// road that reaches the middle of the chain makes riding only the upper half
+// the fastest plan — which is not the day out a person who asked for lifts had
+// in mind. A chain in the region file is a handful of sections, so the hops are
+// counted and the stations already visited are remembered: a map that loops one
+// section back onto another cannot make this walk forever.
+func (g *Graph) liftChainBottom(n int32) int32 {
+	z, ok := g.nodeZ(n)
+	if !ok {
+		return -1
+	}
+	cur, curZ := n, z
+	seen := map[int32]bool{n: true}
+	for hop := 0; hop < 8; hop++ {
+		x, y := g.XY(cur)
+		best, bestZ := int32(-1), curZ
+		for _, s := range g.liftSecs {
+			if s.high != cur {
+				hx, hy := g.XY(s.high)
+				if math.Hypot(hx-x, hy-y) > chainGap {
+					continue
+				}
+			}
+			lz, ok := g.nodeZ(s.low)
+			if !ok || seen[s.low] || lz >= bestZ {
+				continue
+			}
+			best, bestZ = s.low, lz
+		}
+		if best < 0 {
+			break
+		}
+		seen[best] = true
+		cur, curZ = best, bestZ
+	}
+	if cur == n {
+		return -1
+	}
+	return cur
+}
+
+// nodeZ is what a junction stands at, when the map carries elevations.
+func (g *Graph) nodeZ(n int32) (float64, bool) {
+	if len(g.R.PtZ) != len(g.R.Pts) {
+		return 0, false
+	}
+	return g.R.PtZ[g.pt[n]], true
 }
 
 // LiftNear is the lift line within maxM of a point, nearest first: a via

@@ -2,7 +2,9 @@ package route
 
 import (
 	"encoding/json"
+	"fmt"
 	"math"
+	"os"
 	"strings"
 	"testing"
 
@@ -1049,6 +1051,337 @@ func TestLifts(t *testing.T) {
 	}
 }
 
+// chainRegion is a lift in sections, which is how a lift system is mapped: a
+// road up the valley to the valley station V at 900 m and on to the mid station
+// M at 1200, an old chairlift V -> M, a gondola M -> T at 2000, and a path from
+// the top to a hut no road reaches. Every station is joined to the footpaths by
+// a junction a few metres away, as the builder joins the real ones, and the
+// long trail from the mid station to the top is the way up when the lifts are
+// shut.
+//
+// gap is the metres between the top of the first section and the bottom of the
+// second: zero when the two sections meet at one junction, and a short walk
+// when the map gives each its own node, which is what it usually does.
+// roadToValley takes the road to the valley station away — then the road climbs
+// the other side and only the mid station can be parked at.
+func chainRegion(gap float64, roadToValley bool) *Region {
+	r := &Region{Name: "chain", Lat0: 46, Lon0: 11, MPerDegLat: 111000, MPerDegLon: 77000}
+	var zs []float64
+	pt := func(x, y, z float64) int {
+		r.Pts = append(r.Pts, [2]float64{x, y})
+		zs = append(zs, z)
+		return len(r.Pts) - 1
+	}
+	add := func(cls, name string, lf Lift, ps ...int) {
+		pts := make([][2]float64, len(ps))
+		z := make([]float64, len(ps))
+		cum := make([]float64, len(ps))
+		for i, p := range ps {
+			pts[i], z[i] = r.Pts[p], zs[p]
+			if i > 0 {
+				cum[i] = cum[i-1] + math.Hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1])
+			}
+		}
+		st := &city.Stretch{
+			ID: name, Pts: pts, Cum: cum, Len: cum[len(ps)-1], A: ps[0], B: ps[len(ps)-1],
+			Cls: cls, Name: name, MTB: -1, Z: z,
+		}
+		for i := 1; i < len(z); i++ {
+			if d := z[i] - z[i-1]; d > 0 {
+				st.Up += d
+			} else {
+				st.Down -= d
+			}
+		}
+		r.Stretches = append(r.Stretches, st)
+		r.Sat = append(r.Sat, Sat{})
+		r.Lift = append(r.Lift, lf)
+		if lf.Is {
+			r.Lifts++
+		}
+		r.WithElevation++
+	}
+	a := pt(0, 0, 400)
+	vr := pt(3000, 0, 900)  // the road at the valley station
+	vp := pt(3030, 0, 900)  // the footpath that reaches it
+	v := pt(3050, 0, 900)   // the valley station
+	mr := pt(6000, 0, 1200) // the road at the mid station
+	mp := pt(6030, 0, 1200)
+	m1 := pt(6050, 0, 1200) // where the first section ends
+	m2p, m2 := mp, m1       // and where the second begins
+	if gap > 0 {
+		m2p = pt(6030+gap, 0, 1200)
+		m2 = pt(6050+gap, 0, 1200)
+	}
+	top := pt(9050, 0, 2000)
+	tp := pt(9100, 0, 2000)
+	d := pt(11000, 0, 1950)
+
+	if roadToValley {
+		add("residential", "Strada della Valle", Lift{}, a, vr)
+		add("residential", "Strada delle Funivie", Lift{}, vr, mr)
+	} else {
+		add("residential", "Strada Alta", Lift{}, a, pt(3000, 2000, 800), mr)
+		add("path", "Sentiero della Valle", Lift{}, vp, mp)
+	}
+	add("path", "Sentiero della Stazione", Lift{}, vr, vp)
+	add("path", "Sentiero della Stazione Media", Lift{}, mr, mp)
+	if gap > 0 {
+		add("path", "Sentiero fra le Stazioni", Lift{}, mp, m2p)
+	}
+	add("path", "Sentiero dei Larici", Lift{}, mp, tp)
+	add("path", "Sentiero del Rifugio", Lift{}, tp, d)
+	add("lift", "Seggiovia della Valle", Lift{Is: true, Type: "chair_lift", Dur: 1800}, v, m1)
+	add("lift", "Cabinovia del Ghiacciaio", Lift{Is: true, Type: "gondola"}, m2, top)
+	r.PtZ = zs
+	return r
+}
+
+// liftLegs are the rides of a route, in the order they are taken.
+func liftLegs(r *Route) []*Leg {
+	var out []*Leg
+	for _, l := range r.Legs {
+		if l.Mode == "lift" {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// parkedAt is where a route left the car, in the region's own metres along the
+// valley — NaN when it left it nowhere.
+func parkedAt(g *Graph, r *Route) float64 {
+	if r.Parking == nil {
+		return math.NaN()
+	}
+	x, _ := g.R.XY(r.Parking.Lat, r.Parking.Lon)
+	return x
+}
+
+// TestParkAtTheLowestStation: a lift in sections, and a road that reaches the
+// middle of it. The clock says to drive up to the mid station and ride the top
+// half; the DEFAULT parks at the valley station and rides the whole chain,
+// because that is the day out a person who asked for lifts asked for. The fast
+// plan is not thrown away — it is the alternative.
+func TestParkAtTheLowestStation(t *testing.T) {
+	for _, gap := range []float64{0, 120} {
+		g := Build(chainRegion(gap, true))
+		at := func(x float64) Point {
+			lat, lon := g.R.LatLon(x, 0)
+			return Point{Lat: lat, Lon: lon}
+		}
+		res := g.Route(Request{Points: []Point{at(0), at(11000)},
+			Mode: "car+hike", Grade: "E", Lifts: true, Alternatives: 3})
+		if len(res.Routes) < 2 {
+			t.Fatalf("gap %.0f: %d routes (%s)", gap, len(res.Routes), res.Reason)
+		}
+		def := res.Routes[0]
+		if def.Parking == nil {
+			t.Fatalf("gap %.0f: the default parked nowhere", gap)
+		}
+		if def.Parking.Point != nil {
+			t.Errorf("gap %.0f: parking.point is %d, want null: the caller named no stop",
+				gap, *def.Parking.Point)
+		}
+		if x := parkedAt(g, def); math.Abs(x-3000) > 60 {
+			t.Errorf("gap %.0f: parked at %.0f m along the valley, want the valley station at 3000", gap, x)
+		}
+		if def.Parking.Name == "" || !hasWarning(def, "parked at "+def.Parking.Name) {
+			t.Errorf("gap %.0f: warnings %v do not name the parking %q", gap, def.Warnings, def.Parking.Name)
+		}
+		rides := liftLegs(def)
+		if len(rides) != 2 {
+			t.Fatalf("gap %.0f: %d rides in %v, want the whole chain", gap, len(rides), legModes(def))
+		}
+		if rides[0].Name != "Seggiovia della Valle" || rides[1].Name != "Cabinovia del Ghiacciaio" {
+			t.Errorf("gap %.0f: rode %q then %q, want the valley section first", gap, rides[0].Name, rides[1].Name)
+		}
+		// The two minutes of parking are in the trip's clock, in no leg's, and
+		// the rest of the figures are the longer plan's own.
+		sum := 0.0
+		for _, lg := range def.Legs {
+			sum += lg.Seconds
+		}
+		if def.Seconds-sum < switchCost-1 {
+			t.Errorf("gap %.0f: the trip (%.0f s) does not carry the parking over its legs (%.0f s)",
+				gap, def.Seconds, sum)
+		}
+		// The fast plan is still there: it drove to the mid station and rode
+		// the top half, and it is quicker, which is why it was not the default.
+		mid := -1
+		for i, r := range res.Routes[1:] {
+			if math.Abs(parkedAt(g, r)-6000) < 60 {
+				mid = i + 1
+			}
+		}
+		if mid < 0 {
+			t.Fatalf("gap %.0f: no alternative parks at the mid station: %v", gap, parkings(g, res.Routes))
+		}
+		if len(liftLegs(res.Routes[mid])) != 1 {
+			t.Errorf("gap %.0f: the mid-station plan rides %d sections, want the upper one",
+				gap, len(liftLegs(res.Routes[mid])))
+		}
+		if def.Seconds <= res.Routes[mid].Seconds {
+			t.Errorf("gap %.0f: the default (%.0f s) is not slower than the fast plan (%.0f s): one of them is lying",
+				gap, def.Seconds, res.Routes[mid].Seconds)
+		}
+		// The contract the page reads: one snap per requested point, and ids
+		// that are still r1, r2, r3.
+		if len(res.Snapped) != 2 {
+			t.Errorf("gap %.0f: %d snapped points for a two-point request", gap, len(res.Snapped))
+		}
+		seen := map[string]bool{}
+		for i, r := range res.Routes {
+			if want := fmt.Sprintf("r%d", i+1); r.ID != want || seen[r.ID] {
+				t.Errorf("gap %.0f: route %d is %q, want %q", gap, i, r.ID, want)
+			}
+			seen[r.ID] = true
+		}
+		// One route, and the fast plan is simply replaced.
+		one := g.Route(Request{Points: []Point{at(0), at(11000)},
+			Mode: "car+hike", Grade: "E", Lifts: true})
+		if len(one.Routes) != 1 {
+			t.Fatalf("gap %.0f: %d routes for one alternative", gap, len(one.Routes))
+		}
+		if x := parkedAt(g, one.Routes[0]); math.Abs(x-3000) > 60 {
+			t.Errorf("gap %.0f: the only route parks at %.0f m, want the valley station", gap, x)
+		}
+	}
+}
+
+// TestNamedStopKeepsTheParking: a person who names the mid station parks at the
+// mid station. A stop is where you park, and the chain rule never moves one.
+func TestNamedStopKeepsTheParking(t *testing.T) {
+	g := Build(chainRegion(120, true))
+	at := func(x float64, name string) Point {
+		lat, lon := g.R.LatLon(x, 0)
+		return Point{Lat: lat, Lon: lon, Name: name}
+	}
+	res := g.Route(Request{Points: []Point{at(0, "Trento"), at(6000, "Stazione Media"), at(11000, "Rifugio")},
+		Mode: "car+hike", Grade: "E", Lifts: true})
+	if len(res.Routes) != 1 {
+		t.Fatalf("refused: %s", res.Reason)
+	}
+	r := res.Routes[0]
+	if r.Parking == nil || r.Parking.Point == nil {
+		t.Fatalf("parking is %+v, want the stop the caller named", r.Parking)
+	}
+	if *r.Parking.Point != 1 || r.Parking.Name != "Stazione Media" {
+		t.Errorf("parking is %+v, want point 1 and its name", r.Parking)
+	}
+	if x := parkedAt(g, r); math.Abs(x-6000) > 60 {
+		t.Errorf("parked at %.0f m, want the mid station at 6000", x)
+	}
+	if rides := liftLegs(r); len(rides) != 1 || rides[0].Name != "Cabinovia del Ghiacciaio" {
+		t.Errorf("rode %d sections, want only the one above the stop: %v", len(rides), legModes(r))
+	}
+}
+
+// TestNoRoadToTheValleyStation: "whenever possible". With no road within reach
+// of the bottom station the fast plan is the answer again, and it says so the
+// way it always did.
+func TestNoRoadToTheValleyStation(t *testing.T) {
+	g := Build(chainRegion(120, false))
+	at := func(x float64) Point {
+		lat, lon := g.R.LatLon(x, 0)
+		return Point{Lat: lat, Lon: lon}
+	}
+	res := g.Route(Request{Points: []Point{at(0), at(11000)}, Mode: "car+hike", Grade: "E", Lifts: true})
+	if len(res.Routes) != 1 {
+		t.Fatalf("refused: %s", res.Reason)
+	}
+	r := res.Routes[0]
+	if r.Parking == nil || r.Parking.Point != nil {
+		t.Fatalf("parking is %+v, want one the engine chose", r.Parking)
+	}
+	if x := parkedAt(g, r); math.Abs(x-6000) > 60 {
+		t.Errorf("parked at %.0f m, want the mid station: no road reaches the valley one", x)
+	}
+	if rides := liftLegs(r); len(rides) != 1 {
+		t.Errorf("rode %d sections, want the upper one only: %v", len(rides), legModes(r))
+	}
+}
+
+// TestTheChainRuleTouchesNothingElse: a walk has no car to park, and a car+hike
+// that refused the lifts is the trip it always was.
+func TestTheChainRuleTouchesNothingElse(t *testing.T) {
+	g := Build(chainRegion(120, true))
+	at := func(x float64) Point {
+		lat, lon := g.R.LatLon(x, 0)
+		return Point{Lat: lat, Lon: lon}
+	}
+	walk := g.Route(Request{Points: []Point{at(0), at(11000)}, Mode: "hike", Grade: "E", Lifts: true})
+	if len(walk.Routes) != 1 {
+		t.Fatalf("no walk: %s", walk.Reason)
+	}
+	if p := walk.Routes[0].Parking; p != nil {
+		t.Errorf("a walk reported parking %+v", p)
+	}
+	for _, w := range walk.Routes[0].Warnings {
+		if strings.HasPrefix(w, "parked at") {
+			t.Errorf("a walk warned %q", w)
+		}
+	}
+	noLift := g.Route(Request{Points: []Point{at(0), at(11000)}, Mode: "car+hike", Grade: "E"})
+	if len(noLift.Routes) != 1 {
+		t.Fatalf("no route without the lifts: %s", noLift.Reason)
+	}
+	r := noLift.Routes[0]
+	if len(liftLegs(r)) != 0 {
+		t.Fatalf("a trip that did not ask for lifts rode one: %v", legModes(r))
+	}
+	if x := parkedAt(g, r); math.Abs(x-6000) > 60 {
+		t.Errorf("parked at %.0f m, want the mid station the road ends at", x)
+	}
+}
+
+// TestBikeParksAtTheLowestStation: the rule is about the first mode, whatever
+// it is. A bicycle left at the valley station is the same answer as a car.
+func TestBikeParksAtTheLowestStation(t *testing.T) {
+	g := Build(chainRegion(120, true))
+	at := func(x float64) Point {
+		lat, lon := g.R.LatLon(x, 0)
+		return Point{Lat: lat, Lon: lon}
+	}
+	res := g.Route(Request{Points: []Point{at(0), at(11000)},
+		Mode: "bike+hike", Grade: "E", Lifts: true, Alternatives: 3})
+	if len(res.Routes) < 2 {
+		t.Fatalf("%d routes: %s", len(res.Routes), res.Reason)
+	}
+	def := res.Routes[0]
+	if def.Parking == nil || def.Parking.Point != nil {
+		t.Fatalf("parking is %+v, want one the engine chose", def.Parking)
+	}
+	if x := parkedAt(g, def); math.Abs(x-3000) > 60 {
+		t.Errorf("left the bike at %.0f m, want the valley station at 3000", x)
+	}
+	if rides := liftLegs(def); len(rides) != 2 {
+		t.Errorf("rode %d sections, want the whole chain: %v", len(rides), legModes(def))
+	}
+	if legModes(def)[0] != "bike" {
+		t.Errorf("the first leg is %q, want the ride to the valley station", legModes(def)[0])
+	}
+	mid := false
+	for _, r := range res.Routes[1:] {
+		if math.Abs(parkedAt(g, r)-6000) < 60 {
+			mid = true
+		}
+	}
+	if !mid {
+		t.Errorf("no alternative parks at the mid station: %v", parkings(g, res.Routes))
+	}
+}
+
+// parkings is where each route of an answer left the car, for a failure to
+// print.
+func parkings(g *Graph, rs []*Route) []float64 {
+	out := make([]float64, len(rs))
+	for i, r := range rs {
+		out[i] = parkedAt(g, r)
+	}
+	return out
+}
+
 // shapeRegion: two ways from A to B, a short one through the middle and a
 // longer one round the north. Enough to drag a route onto the long way, or to
 // strike the short one out.
@@ -1643,5 +1976,454 @@ func TestRouteCarriesEachLineOnce(t *testing.T) {
 	r := res.Routes[0]
 	if want := len(r.Legs[0].Geometry.Coordinates) + len(r.Legs[1].Geometry.Coordinates) - 1; len(r.Geometry.Coordinates) != want {
 		t.Errorf("joined line has %d points, want %d", len(r.Geometry.Coordinates), want)
+	}
+}
+
+// branchRegion is a valley road that every answer has to drive — the stem —
+// and three ways on from the junction at its head, straight on, round the
+// north and round the south. There is no second way onto the stem, so every
+// alternative after the first is found while the first one's penalty sits on
+// the stem: the shape that catches a search-only cost leaking into the clock.
+func branchRegion() *Region {
+	r := &Region{Name: "branch", Lat0: 46, Lon0: 11, MPerDegLat: 111000, MPerDegLon: 77000}
+	r.Pts = [][2]float64{
+		{0, 0},        // 0 the start
+		{3000, 0},     // 1 the head of the valley
+		{6000, 0},     // 2 straight on
+		{6000, 1500},  // 3 round the north
+		{6000, -2500}, // 4 round the south
+		{9000, 0},     // 5 the end
+	}
+	add := func(a, b int, name string) {
+		pts := [][2]float64{r.Pts[a], r.Pts[b]}
+		cum := []float64{0, math.Hypot(pts[1][0]-pts[0][0], pts[1][1]-pts[0][1])}
+		r.Stretches = append(r.Stretches, &city.Stretch{
+			ID: name, Pts: pts, Cum: cum, Len: cum[1], A: a, B: b,
+			Cls: "residential", Name: name, MTB: -1,
+		})
+		r.Sat = append(r.Sat, Sat{})
+		r.Lift = append(r.Lift, Lift{})
+	}
+	add(0, 1, "Strada del Fondovalle")
+	add(1, 2, "Via Diretta")
+	add(2, 5, "Via Diretta")
+	add(1, 3, "Via del Nord")
+	add(3, 5, "Via del Nord")
+	add(1, 4, "Via del Sud")
+	add(4, 5, "Via del Sud")
+	return r
+}
+
+// TestAlternativesReportHonestTimes: what an alternative says it takes is what
+// it takes. A penalty round makes a stretch an earlier route used cost half as
+// much again SO THAT the search looks elsewhere; it is not a road that got
+// slower, and the seconds on the card must be the seconds of the line. Trento
+// to Cima Presanella reported the third card's 79.5 km at 109 minutes and the
+// first card's 72.6 km of the same roads at 75: half an hour of arithmetic.
+//
+// Every route here drives the stem, which is penalised from the second round
+// on, so each alternative is compared with the same line asked for on its own.
+func TestAlternativesReportHonestTimes(t *testing.T) {
+	g := Build(branchRegion())
+	at := func(x, y float64) Point {
+		lat, lon := g.R.LatLon(x, y)
+		return Point{Lat: lat, Lon: lon}
+	}
+	res := g.Route(Request{Points: []Point{at(0, 0), at(9000, 0)}, Mode: "car", Alternatives: 3})
+	if len(res.Routes) != 3 {
+		t.Fatalf("%d routes on a three-way branch (%s)", len(res.Routes), res.Reason)
+	}
+	// The same three lines, each forced on its own by striking out the ways
+	// the clock would otherwise prefer. No penalty is anywhere near these.
+	alone := []*Result{
+		g.Route(Request{Points: []Point{at(0, 0), at(9000, 0)}, Mode: "car"}),
+		g.Route(Request{Points: []Point{at(0, 0), at(9000, 0)}, Mode: "car",
+			Avoid: []Point{at(4500, 0)}}),
+		g.Route(Request{Points: []Point{at(0, 0), at(9000, 0)}, Mode: "car",
+			Avoid: []Point{at(4500, 0), at(4500, 750)}}),
+	}
+	for i, a := range alone {
+		if len(a.Routes) != 1 {
+			t.Fatalf("the forced route %d was refused: %s", i+1, a.Reason)
+		}
+	}
+	for i, r := range res.Routes {
+		want := alone[i].Routes[0]
+		if got, w := r.Meters, want.Meters; math.Abs(got-w) > 1 {
+			t.Fatalf("%s is %.0f m and the line asked for on its own is %.0f: they are not the same route",
+				r.ID, got, w)
+		}
+		if got, w := r.Seconds, want.Seconds; math.Abs(got-w) > 1 {
+			t.Errorf("%s reports %.0f s for a line that takes %.0f (%.2fx): the penalty round's cost reached the clock",
+				r.ID, got, w, got/w)
+		}
+		// And the trip's clock is still its legs' clock.
+		sum := 0.0
+		for _, lg := range r.Legs {
+			sum += lg.Seconds
+		}
+		if math.Abs(r.Seconds-sum) > 2 {
+			t.Errorf("%s is %.0f s over legs adding up to %.0f", r.ID, r.Seconds, sum)
+		}
+	}
+}
+
+// twoSidesRegion is a summit with a side each: a short road to the south
+// trailhead with three trails off it, and a longer road round to the north
+// trailhead with one. The south is the fastest and the north is worth showing
+// — under twice the clock — but no amount of penalising stretches ever leaves
+// the south, because every penalty only sends the search to the next trail out
+// of the same car park. northRoad is what the second side hangs on.
+func twoSidesRegion(northRoad bool) *Region {
+	r := &Region{Name: "twosides", Lat0: 46, Lon0: 11, MPerDegLat: 111000, MPerDegLon: 77000}
+	r.Pts = [][2]float64{
+		{0, 0},        // 0 the town
+		{9000, 1000},  // 1 the south trailhead
+		{9000, 6000},  // 2 the summit
+		{2000, 10000}, // 3 the north trailhead
+		{0, 10000},    // 4 the corner the north road turns at
+		{9300, 3500},  // 5 bends, one per south trail
+		{10200, 3200}, // 6
+		{7000, 3800},  // 7
+	}
+	add := func(cls, name string, ps ...int) {
+		pts := make([][2]float64, len(ps))
+		cum := make([]float64, len(ps))
+		for i, p := range ps {
+			pts[i] = r.Pts[p]
+			if i > 0 {
+				cum[i] = cum[i-1] + math.Hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1])
+			}
+		}
+		r.Stretches = append(r.Stretches, &city.Stretch{
+			ID: name, Pts: pts, Cum: cum, Len: cum[len(ps)-1], A: ps[0], B: ps[len(ps)-1],
+			Cls: cls, Name: name, MTB: -1,
+		})
+		r.Sat = append(r.Sat, Sat{})
+		r.Lift = append(r.Lift, Lift{})
+	}
+	add("residential", "Strada della Val Bassa", 0, 1)
+	add("path", "Sentiero delle Malghe", 1, 5, 2)
+	add("path", "Sentiero dei Larici", 1, 6, 2)
+	add("path", "Sentiero della Cresta", 1, 7, 2)
+	if northRoad {
+		add("residential", "Strada di Stavel", 0, 4, 3)
+	}
+	add("path", "Sentiero del Versante Nord", 3, 2)
+	return r
+}
+
+// TestAlternativesTryAnotherTrailhead is the complaint itself, on a map small
+// enough to check by hand: three alternatives to a summit that all park in the
+// same valley are one answer drawn three times, and the walk in from the other
+// side never gets a card. The first penalty round now asks for a DIFFERENT
+// trailhead, and pays about the fastest trip's own clock for it.
+func TestAlternativesTryAnotherTrailhead(t *testing.T) {
+	g := Build(twoSidesRegion(true))
+	at := func(x, y float64) Point {
+		lat, lon := g.R.LatLon(x, y)
+		return Point{Lat: lat, Lon: lon}
+	}
+	res := g.Route(Request{Points: []Point{at(0, 0), at(9000, 6000)},
+		Mode: "car+hike", Grade: "E", Alternatives: 3})
+	if len(res.Routes) != 3 {
+		t.Fatalf("%d routes (%s)", len(res.Routes), res.Reason)
+	}
+	if x := parkedAt(g, res.Routes[0]); math.Abs(x-9000) > 500 {
+		t.Fatalf("the fastest parks at %.0f, want the south trailhead at 9000", x)
+	}
+	north := -1
+	for i, r := range res.Routes {
+		if math.Abs(parkedAt(g, r)-2000) < 500 {
+			north = i
+		}
+	}
+	if north < 0 {
+		t.Fatalf("no alternative parks on the north side: %v", parkings(g, res.Routes))
+	}
+	// It is an alternative, not a different holiday: under twice the fastest.
+	if got, fast := res.Routes[north].Seconds, res.Routes[0].Seconds; got > 2*fast {
+		t.Errorf("the north side takes %.0f s against the fastest %.0f: %.2fx, and it was shown anyway",
+			got, fast, got/fast)
+	}
+	// The rounds after the first penalise stretches, as they always did, so
+	// the third card is the second trail out of the fastest one's car park.
+	same := 0
+	for _, r := range res.Routes {
+		if math.Abs(parkedAt(g, r)-9000) < 500 {
+			same++
+		}
+	}
+	if same != 2 {
+		t.Errorf("%d routes park at the south trailhead, want two: %v", same, parkings(g, res.Routes))
+	}
+
+	// With no road to the north trailhead there is no other side to find, and
+	// the answer is the three trails the stretch penalties find, as before.
+	only := Build(twoSidesRegion(false))
+	res = only.Route(Request{Points: []Point{at(0, 0), at(9000, 6000)},
+		Mode: "car+hike", Grade: "E", Alternatives: 3})
+	if len(res.Routes) != 3 {
+		t.Fatalf("no north road: %d routes (%s)", len(res.Routes), res.Reason)
+	}
+	for _, r := range res.Routes {
+		if x := parkedAt(only, r); math.Abs(x-9000) > 500 {
+			t.Errorf("no north road: %s parked at %.0f, and there is nowhere else", r.ID, x)
+		}
+	}
+	seen := map[string]bool{}
+	for _, r := range res.Routes {
+		key := strings.Join(stepNames(r.Steps), "|")
+		if seen[key] {
+			t.Errorf("no north road: two identical routes: %s", key)
+		}
+		seen[key] = true
+	}
+
+	// A STOP IS WHERE YOU PARK. A caller who named the south trailhead asked
+	// for it, and no round may offer to drive round the mountain instead.
+	stop := at(9000, 1000)
+	stop.Name = "Malga Bassa"
+	named := g.Route(Request{Points: []Point{at(0, 0), stop, at(9000, 6000)},
+		Mode: "car+hike", Grade: "E", Alternatives: 3})
+	if len(named.Routes) == 0 {
+		t.Fatalf("named stop: no route (%s)", named.Reason)
+	}
+	for _, r := range named.Routes {
+		if r.Parking == nil || r.Parking.Point == nil || *r.Parking.Point != 1 {
+			t.Errorf("named stop: %s parked at %+v, want the stop the caller named", r.ID, r.Parking)
+			continue
+		}
+		if x := parkedAt(g, r); math.Abs(x-9000) > 500 {
+			t.Errorf("named stop: %s parked at %.0f, want Malga Bassa at 9000", r.ID, x)
+		}
+	}
+}
+
+// TestPresanellaOnTheRegionMap is the complaint itself, against the map the
+// service serves: Trento to Cima Presanella answered with three walks off the
+// same forest road in Val Nambrone, two of them reporting a drive half an hour
+// longer than the first card reported for the same roads.
+//
+// The map is derived from an OSM extract and a DEM and is not in git — see
+// tools/refresh-region.sh — so this skips in a tree that has not built it.
+func TestPresanellaOnTheRegionMap(t *testing.T) {
+	const mapPath = "../../web/public/taa.json"
+	if _, err := os.Stat(mapPath); err != nil {
+		t.Skip("no web/public/taa.json in this tree: the region map is derived, see tools/refresh-region.sh")
+	}
+	reg, err := Load(mapPath)
+	if err != nil {
+		t.Fatalf("loading %s: %v", mapPath, err)
+	}
+	g := Build(reg)
+	trento := Point{Lat: 46.06642, Lon: 11.12576}
+	summit := Point{Lat: 46.21993, Lon: 10.66412}
+	res := g.Route(Request{Points: []Point{trento, summit},
+		Mode: "car+hike", Grade: "A", Alternatives: 3})
+	if len(res.Routes) != 3 {
+		t.Fatalf("%d routes to Cima Presanella (%s)", len(res.Routes), res.Reason)
+	}
+	for _, r := range res.Routes {
+		if r.Parking == nil {
+			t.Fatalf("%s left the car nowhere on a car+hike trip", r.ID)
+		}
+		// THE CLOCK IS THE LINE'S OWN. A drive is only ever as slow as the
+		// roads it is on: what it reports may exceed the free-flow time of the
+		// metres it covers by the ramp charges and by nothing else. A penalty
+		// round put 79.5 km of Val Rendena at 109 minutes on the third card
+		// while 72.6 km of the same roads took 75 on the first.
+		for _, lg := range r.Legs {
+			if lg.Mode != modeName[modeCar] {
+				continue
+			}
+			free := 0.0
+			for cls, m := range lg.Classes {
+				free += m / city.Limit(cls)
+			}
+			if slack := lg.Seconds - free; slack > 10*rampCost {
+				t.Errorf("%s drives %.1f km in a reported %.0f s where those roads run in %.0f at their own limits: %.0f s of penalty reached the clock",
+					r.ID, lg.Meters/1000, lg.Seconds, free, slack)
+			}
+		}
+		// And no card may be quicker than the best trip through its own car
+		// park: ask for that parking as a stop and the answer is this trip or
+		// a better one, never a worse one wearing this one's figures.
+		stop := Point{Lat: r.Parking.Lat, Lon: r.Parking.Lon, Name: r.Parking.Name}
+		alone := g.Route(Request{Points: []Point{trento, stop, summit}, Mode: "car+hike", Grade: "A"})
+		if len(alone.Routes) != 1 {
+			t.Errorf("%s: no route through its own parking (%s)", r.ID, alone.Reason)
+			continue
+		}
+		if got := alone.Routes[0].Seconds; got > r.Seconds*1.01 {
+			t.Errorf("%s reports %.0f s, and the best trip through its own parking takes %.0f: it is claiming a line it did not walk",
+				r.ID, r.Seconds, got)
+		}
+	}
+	// A MOUNTAIN HAS SIDES, and the side is the choice. Three cards that all
+	// leave the car in the same valley are one answer drawn three times: at
+	// least one alternative parks further than parkSpread from the trailhead
+	// the fastest route chose.
+	fx, fy := g.R.XY(res.Routes[0].Parking.Lat, res.Routes[0].Parking.Lon)
+	far := 0.0
+	for _, r := range res.Routes[1:] {
+		x, y := g.R.XY(r.Parking.Lat, r.Parking.Lon)
+		far = math.Max(far, math.Hypot(x-fx, y-fy))
+	}
+	if far <= parkSpread {
+		t.Errorf("every alternative parks within %.1f km of the fastest one's trailhead: %v",
+			far/1000, parkings(g, res.Routes))
+	}
+	// AND THE SIDE IS HOW YOU FINISH. Presanella is started from four valleys
+	// and finished up two trails: 219 over the Vedretta d'Amola, which is what
+	// the fastest way up Val Nambrone walks, and 220 over the Vedretta
+	// Presanella, which is the trek the owner missed. One alternative must
+	// come up that other way — none of the last three kilometres the fastest
+	// route walked, and another trail under the summit.
+	app := g.approachOf(res.Routes[0])
+	other := -1
+	for i, r := range res.Routes[1:] {
+		shared := false
+		for _, st := range r.walkSts {
+			if app[st] {
+				shared = true
+				break
+			}
+		}
+		if !shared && lastWay(r) != lastWay(res.Routes[0]) {
+			other = i + 1
+			break
+		}
+	}
+	if other < 0 {
+		t.Fatalf("every alternative finishes the way the fastest one does, up %q", lastWay(res.Routes[0]))
+	}
+	if got, want := lastWay(res.Routes[other]), "trail 220"; got != want {
+		t.Errorf("%s comes up %q; the side the owner asked for is %q, over the Vedretta Presanella",
+			res.Routes[other].ID, got, want)
+	}
+	if p := res.Routes[other].Parking; p.Lon >= 10.70 {
+		t.Errorf("%s parks at %.5f,%.5f, east of the summit: that is Val Nambrone again",
+			res.Routes[other].ID, p.Lat, p.Lon)
+	}
+}
+
+// lastWay is the last named thing a route walks on: what it finishes by, and
+// so which side of a summit it came up. The unnamed ground above the last
+// trail is nobody's approach — every way up crosses it.
+func lastWay(r *Route) string {
+	for i := len(r.Steps) - 1; i >= 0; i-- {
+		s := r.Steps[i]
+		if s.Mode != "hike" {
+			continue
+		}
+		switch s.Name {
+		case "path", "track", "steps", "":
+			continue
+		}
+		return s.Name
+	}
+	return ""
+}
+
+// approachRegion is a summit with two ridges to it and three car parks: two of
+// them on opposite sides of the valley that both finish up the east ridge, and
+// one round the back that finishes up the north. The far car park is nearer in
+// the clock than the north one — so a rule that only asks for a DIFFERENT
+// PLACE TO PARK offers the same day out twice, from two car parks eight
+// kilometres apart, and never mentions the other ridge.
+func approachRegion() *Region {
+	r := &Region{Name: "approach", Lat0: 46, Lon0: 11, MPerDegLat: 111000, MPerDegLon: 77000}
+	r.Pts = [][2]float64{
+		{0, 0},        // 0 the town
+		{8000, 0},     // 1 the near car park
+		{16000, 0},    // 2 the far one, on the same ridge
+		{2000, 10000}, // 3 the one round the back
+		{12000, 3000}, // 4 the foot of the east ridge
+		{9000, 6000},  // 5 the foot of the north ridge
+		{12000, 6000}, // 6 the summit
+		{8000, -3000}, // 7 the bend on the road to the far car park
+		{0, 10000},    // 8 and on the road round the back
+	}
+	add := func(cls, name string, ps ...int) {
+		pts := make([][2]float64, len(ps))
+		cum := make([]float64, len(ps))
+		for i, p := range ps {
+			pts[i] = r.Pts[p]
+			if i > 0 {
+				cum[i] = cum[i-1] + math.Hypot(pts[i][0]-pts[i-1][0], pts[i][1]-pts[i-1][1])
+			}
+		}
+		r.Stretches = append(r.Stretches, &city.Stretch{
+			ID: name, Pts: pts, Cum: cum, Len: cum[len(ps)-1], A: ps[0], B: ps[len(ps)-1],
+			Cls: cls, Name: name, MTB: -1,
+		})
+		r.Sat = append(r.Sat, Sat{})
+		r.Lift = append(r.Lift, Lift{})
+	}
+	add("residential", "Strada della Val Bassa", 0, 1)
+	add("residential", "Strada del Doss", 0, 7, 2)
+	add("residential", "Strada del Passo", 0, 8, 3)
+	add("path", "Sentiero delle Malghe", 1, 4)
+	add("path", "Sentiero del Doss", 2, 4)
+	add("path", "Sentiero 219", 4, 6)
+	add("path", "Sentiero 220", 5, 6)
+	add("path", "Sentiero del Versante Nord", 3, 5)
+	return r
+}
+
+// TestAlternativesTryAnotherApproach is what the parking charge alone cannot
+// buy. A card that ends the same way is the same side of the mountain whatever
+// car park it started from, so the first penalty round charges approachFactor
+// on the last approachM of the fastest route's walk. The answer that only
+// moves the car is not thrown away — it is the third card, found by the
+// stretch penalties in the round after, exactly as before.
+func TestAlternativesTryAnotherApproach(t *testing.T) {
+	g := Build(approachRegion())
+	at := func(x, y float64) Point {
+		lat, lon := g.R.LatLon(x, y)
+		return Point{Lat: lat, Lon: lon}
+	}
+	res := g.Route(Request{Points: []Point{at(0, 0), at(12000, 6000)},
+		Mode: "car+hike", Grade: "E", Alternatives: 3})
+	if len(res.Routes) != 3 {
+		t.Fatalf("%d routes (%s)", len(res.Routes), res.Reason)
+	}
+	want := []struct {
+		park float64
+		way  string
+	}{
+		{8000, "Sentiero 219"},  // the fastest, up the east ridge
+		{2000, "Sentiero 220"},  // the other ridge, though its car park is further
+		{16000, "Sentiero 219"}, // and only then the same ridge from the far car park
+	}
+	for i, w := range want {
+		r := res.Routes[i]
+		if x := parkedAt(g, r); math.Abs(x-w.park) > 500 {
+			t.Errorf("%s parks at %.0f, want %.0f: %v", r.ID, x, w.park, parkings(g, res.Routes))
+		}
+		if got := lastWay(r); got != w.way {
+			t.Errorf("%s finishes up %q, want %q", r.ID, got, w.way)
+		}
+	}
+	// The approach the fastest route walked is the last approachM of it and no
+	// more: the trail below it is penalised the ordinary way, which is how the
+	// third card gets to use it again.
+	app := g.approachOf(res.Routes[0])
+	if len(app) != 1 || !app[5] {
+		t.Errorf("the approach is %v, want the east ridge alone", app)
+	}
+	// And every card still reports the honest time of its own line: ask for
+	// each one's parking as a stop and the clock is the same to the second.
+	for _, r := range res.Routes {
+		stop := Point{Lat: r.Parking.Lat, Lon: r.Parking.Lon, Name: "P"}
+		alone := g.Route(Request{Points: []Point{at(0, 0), stop, at(12000, 6000)},
+			Mode: "car+hike", Grade: "E"})
+		if len(alone.Routes) != 1 {
+			t.Fatalf("%s: no route through its own parking (%s)", r.ID, alone.Reason)
+		}
+		if got := alone.Routes[0].Seconds; math.Abs(got-r.Seconds) > 2 {
+			t.Errorf("%s reports %.0f s for a trip that takes %.0f", r.ID, r.Seconds, got)
+		}
 	}
 }

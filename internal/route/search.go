@@ -115,7 +115,10 @@ type Route struct {
 	Parking *Parking `json:"parking,omitempty"`
 
 	stretches map[int32]float64 // the stretches walked, by length: the overlap test
+	walkSts   []int32           // the stretches gone over on foot, in travel order
 	parkNode  int32             // the junction a mid-leg switch parked at, -1 when none
+	parkPair  int               // and which pair of waypoints it happened between
+	liftOn    int32             // the station the first ride was boarded at, -1 when none
 }
 
 // Parking is where the car (or the bike) is left on a two-mode trip. Point is
@@ -184,6 +187,10 @@ const (
 	// own, and maxSteps the most lines a route may have.
 	minStepM = 150.0
 	maxSteps = 40
+	// parkReach is how far from a valley station a car may be left and still
+	// count as parking at it: the station's own car park, the square in front
+	// of it, the last widening of the road.
+	parkReach = 300.0
 )
 
 type state = int64
@@ -212,7 +219,8 @@ func (p *pq) Pop() interface{} {
 }
 
 // usedEdge is one move of the answer: a stretch travelled, or the parking
-// stop where the trip changes mode.
+// stop where the trip changes mode. w is the seconds the move TAKES — never
+// what a penalty round was willing to pay to avoid it.
 type usedEdge struct {
 	st     int32
 	rev    bool
@@ -228,10 +236,122 @@ type stats struct {
 	gradeSkipped int // the easiest grade that was refused, 0 when none was
 }
 
+// penalties is what a round of alternatives is willing to pay, on top of the
+// honest travel time, to be shown a different answer: a factor on every
+// stretch the routes before it used, and a flat charge for leaving the car
+// where they left it.
+//
+// None of it is time anybody spends. It orders the heap and stops there — see
+// searchSeg, where cost and weight part company.
+type penalties struct {
+	stretch  map[int32]float64 // by stretch id: the factor on its weight
+	approach map[int32]bool    // the last of the fastest route's walk: see approachOf
+	parkAt   [][2]float64      // where the routes kept so far left the car
+	parkPen  float64           // charged for parking within parkSpread of one
+}
+
+// parkSpread is how far apart two trailheads must be before they are a
+// different answer to "where do I leave the car". Inside three kilometres you
+// are on the same side of the mountain, up the same valley, off the same road:
+// two car parks a kilometre apart in Val Nambrone are one trailhead to a
+// person choosing a day out, however different the walk above them looks.
+const parkSpread = 3000.0
+
+// otherParkShare is what the first penalty round will pay, as a share of the
+// fastest trip's own clock, for a trailhead somewhere else. At 1 another side
+// is worth a card while it costs less than roughly twice the fastest: Trento
+// to Cima Presanella is six and a half hours up Val Nambrone, and the ways in
+// from the valleys around it — under nine hours, ten, ten and a half — are all
+// days out a person might choose. At three times over it would not be an
+// alternative, it would be a different holiday.
+//
+// What it buys is a different valley, not a chosen one: the cheapest trailhead
+// outside the radius wins, whichever side of the summit it stands on.
+const otherParkShare = 1.0
+
+// approachM is how much of the end of a walk is its APPROACH: the last three
+// kilometres, or the whole of it when it is shorter. It is the part of a day
+// that decides which side of a mountain you were on — the ridge, the glacier,
+// the last trail above the huts — and it is what two cards have in common when
+// they are the same answer with different parking.
+const approachM = 3000.0
+
+// approachFactor is what the first penalty round charges on that approach:
+// eight times, against the ×1.5 everything else the route used pays. It has to
+// outweigh any amount of cleverness with car parks, because that is exactly
+// what it is there to beat — Trento to Cima Presanella can be started from
+// four valleys and still finish up the same trail, and four cards that finish
+// the same way are one card. At eight, a line that reaches the summit ANOTHER
+// way wins whenever it costs less than about twice the fastest, and a line
+// that only moves the car does not.
+const approachFactor = 8.0
+
+// factor is what this round charges for a stretch an earlier route travelled.
+func (p *penalties) factor(st int32) float64 {
+	if p == nil {
+		return 1
+	}
+	if p.approach[st] {
+		return approachFactor
+	}
+	if f, ok := p.stretch[st]; ok {
+		return f
+	}
+	return 1
+}
+
+// isLift says a stretch is an aerialway: a ride, and never a step of the walk.
+func (g *Graph) isLift(st int32) bool {
+	return int(st) < len(g.R.Lift) && g.R.Lift[st].Is
+}
+
+// approachOf is the last approachM metres of a route's walk, as a set of
+// stretches: counted backwards from the destination, over what was walked and
+// never over what was ridden or driven. A route with no walk in it has no
+// approach and nothing to protect.
+func (g *Graph) approachOf(r *Route) map[int32]bool {
+	if len(r.walkSts) == 0 {
+		return nil
+	}
+	out := map[int32]bool{}
+	m := 0.0
+	for i := len(r.walkSts) - 1; i >= 0 && m < approachM; i-- {
+		out[r.walkSts[i]] = true
+		m += g.R.Stretches[r.walkSts[i]].Len
+	}
+	return out
+}
+
+// parkCost is what this round charges for leaving the car at n: nothing,
+// unless n is within parkSpread of a trailhead an earlier route already chose.
+func (p *penalties) parkCost(g *Graph, n int32) float64 {
+	if p == nil || p.parkPen <= 0 {
+		return 0
+	}
+	x, y := g.XY(n)
+	for _, q := range p.parkAt {
+		if math.Hypot(x-q[0], y-q[1]) <= parkSpread {
+			return p.parkPen
+		}
+	}
+	return 0
+}
+
 // searchSeg is one leg of the trip: A* over (junction, mode) from `from` to
-// `to` under `plan`, refusing anything above `grade` on foot and charging
-// `pen` times the weight on a stretch an earlier route already used.
-func (g *Graph) searchSeg(from, to int32, plan []int, grade int, lifts bool, avoid map[int32]bool, pen map[int32]float64, st *stats) ([]usedEdge, bool) {
+// `to` under `plan`, refusing anything above `grade` on foot.
+//
+// COST IS NOT WEIGHT. What `pen` adds — a factor on a stretch an earlier route
+// used, a charge for parking where it parked — orders the heap and is thrown
+// away; what an edge RECORDS is w, the seconds the move really takes, and w is
+// what the legs add up. A penalty that reached the answer made an alternative
+// report a drive nobody drives: the same roads to Val Nambrone at 109 minutes
+// on the third card and 75 on the first, half an hour of pure arithmetic. The
+// charges that ARE time — the ramp, the parking, the wait at a lift station —
+// go into w, and into the clock.
+//
+// The bound stays admissible because every cost is at least its weight: no
+// penalty is ever a discount.
+func (g *Graph) searchSeg(from, to int32, plan []int, grade int, lifts bool, avoid map[int32]bool, pen *penalties, st *stats) ([]usedEdge, bool) {
 	next := map[int]int{}
 	for i := 0; i+1 < len(plan); i++ {
 		next[plan[i]] = plan[i+1]
@@ -311,12 +431,7 @@ func (g *Graph) searchSeg(from, to int32, plan []int, grade int, lifts bool, avo
 				isMotorway(g.R.Stretches[e.st].Cls) != onMotorway {
 				w += rampCost
 			}
-			if pen != nil {
-				if f, ok := pen[e.st]; ok {
-					w *= f
-				}
-			}
-			s2, d2 := sk(e.to, m), d+w
+			s2, d2 := sk(e.to, m), d+w*pen.factor(e.st)
 			if cur, seen := labels[s2]; !seen || d2 < cur-1e-9 {
 				labels[s2] = d2
 				pred[s2] = predRec{prev: it.s, st: e.st, rev: e.rev, w: w}
@@ -331,12 +446,7 @@ func (g *Graph) searchSeg(from, to int32, plan []int, grade int, lifts bool, avo
 					continue
 				}
 				w := float64(e.w)
-				if pen != nil {
-					if f, ok := pen[e.st]; ok {
-						w *= f
-					}
-				}
-				s2, d2 := sk(e.to, m), d+w
+				s2, d2 := sk(e.to, m), d+w*pen.factor(e.st)
 				if cur, seen := labels[s2]; !seen || d2 < cur-1e-9 {
 					labels[s2] = d2
 					pred[s2] = predRec{prev: it.s, st: e.st, rev: e.rev, w: w}
@@ -345,7 +455,7 @@ func (g *Graph) searchSeg(from, to int32, plan []int, grade int, lifts bool, avo
 			}
 		}
 		if nm, ok := next[m]; ok && g.trailhead(m, nm, node) {
-			s2, d2 := sk(node, nm), d+switchCost
+			s2, d2 := sk(node, nm), d+switchCost+pen.parkCost(g, node)
 			if cur, seen := labels[s2]; !seen || d2 < cur-1e-9 {
 				labels[s2] = d2
 				pred[s2] = predRec{prev: it.s, w: switchCost, parked: true}
@@ -390,6 +500,11 @@ func (g *Graph) searchSeg(from, to int32, plan []int, grade int, lifts bool, avo
 // With only TWO points there is no stop to park at, so the trailhead rule
 // decides as before: the trip may change mode once, at any junction where the
 // next mode can leave by a way the current one cannot.
+//
+// AND WHERE A LIFT COMES IN SECTIONS the trailhead the clock chose is not the
+// default: the car goes to the bottom of the chain and the whole lift is
+// ridden, whenever a road gets there. See parkLowest, at the end of this
+// section.
 func (g *Graph) Route(req Request) *Result {
 	if r, ok := g.cachedRefusal(req); ok {
 		return r
@@ -668,7 +783,7 @@ func (g *Graph) Route(req Request) *Result {
 		tp.parkLat, tp.parkLon = res.Snapped[parkPt].Lat, res.Snapped[parkPt].Lon
 	}
 
-	pen := map[int32]float64{}
+	pen := &penalties{stretch: map[int32]float64{}}
 	var sstats stats
 	for round := 0; round < want+2 && len(res.Routes) < want; round++ {
 		r := g.trip(tp, pen, &sstats)
@@ -677,13 +792,7 @@ func (g *Graph) Route(req Request) *Result {
 		}
 		keep := true
 		for _, prev := range res.Routes {
-			shared := 0.0
-			for id, l := range r.stretches {
-				if _, ok := prev.stretches[id]; ok {
-					shared += l
-				}
-			}
-			if r.Meters > 0 && shared/r.Meters > 0.8 {
+			if sameLine(r, prev) {
 				keep = false
 				break
 			}
@@ -697,11 +806,68 @@ func (g *Graph) Route(req Request) *Result {
 		}
 		// Penalty round: everything this route used costs half as much again.
 		for id := range r.stretches {
-			if f, ok := pen[id]; ok {
-				pen[id] = f * 1.5
+			if f, ok := pen.stretch[id]; ok {
+				pen.stretch[id] = f * 1.5
 			} else {
-				pen[id] = 1.5
+				pen.stretch[id] = 1.5
 			}
+		}
+		// AND THE FIRST OF THEM ASKS FOR ANOTHER SIDE OF THE MOUNTAIN.
+		// Penalising stretches never leaves the valley the fastest route drove
+		// up: every way out of that car park is one more line to penalise, and
+		// Trento to Cima Presanella answered with three tracks off the same
+		// forest road in Val Nambrone while the trek in from Vermiglio went
+		// unmentioned. A mountain has sides, and the side is the choice.
+		//
+		// The side is not WHERE YOU PARK — Presanella can be started from four
+		// valleys and still finished up the same trail — it is HOW YOU FINISH.
+		// So the first penalty round does two things, both only when the engine
+		// chose the parking (a caller who NAMED a stop is owed that stop, not a
+		// tour of the massif). It charges approachFactor on the last approachM
+		// of the fastest route's walk, which is what a card has to give up to
+		// count as another answer; and it charges otherParkShare of the fastest
+		// trip's clock for leaving the car within parkSpread of where it has
+		// already been left, so a second card does not merely shuffle car parks
+		// along one valley.
+		//
+		// A round that comes back the same way anyway found nothing better and
+		// is a candidate like any other: sameLine decides, as it does for every
+		// round. The rounds after it penalise stretches alone.
+		pen.approach, pen.parkAt, pen.parkPen = nil, nil, 0
+		if round == 0 && len(plan) >= 2 && tp.parkPoint < 1 {
+			pen.approach = g.approachOf(res.Routes[0])
+			for _, kept := range res.Routes {
+				if kept.parkNode >= 0 {
+					x, y := g.XY(kept.parkNode)
+					pen.parkAt = append(pen.parkAt, [2]float64{x, y})
+				}
+			}
+			if len(pen.parkAt) > 0 {
+				pen.parkPen = otherParkShare * res.Routes[0].Seconds
+			}
+		}
+	}
+	// PARK AT THE BOTTOM OF THE LIFT. The fastest trip is not the default when
+	// a lift comes in sections and a road reaches the middle of one: see
+	// parkLowest. The fast plan stays as an alternative, because driving to the
+	// mid station is a real answer — just not the one to open with.
+	if low := g.parkLowest(tp, res.Routes, &sstats); low != nil {
+		// The fast plan is kept whatever it shares with the new default: it is
+		// the answer to "and if I drive up to the mid station?". A penalty
+		// round's route is not, once the default has swallowed it — that is
+		// the round's own test, applied one route later.
+		routes := []*Route{low, res.Routes[0]}
+		for _, r := range res.Routes[1:] {
+			if !sameLine(r, low) {
+				routes = append(routes, r)
+			}
+		}
+		if len(routes) > want {
+			routes = routes[:want]
+		}
+		res.Routes = routes
+		for i, r := range res.Routes {
+			r.ID = fmt.Sprintf("r%d", i+1)
 		}
 	}
 	// An avoid list that cuts the destination off says so, and names the way
@@ -755,6 +921,94 @@ func (g *Graph) Route(req Request) *Result {
 		g.cacheRefusal(req, res)
 	}
 	return res
+}
+
+// parkLowest is the trip a person means when a lift comes in sections: the car
+// left at the LOWEST station of the chain, and the whole chain ridden.
+//
+// A lift system is mapped section by section — a valley station, a mid station,
+// a top station — and where a road reaches the mid station the clock says to
+// drive up to it and ride only the upper half. That is the fastest answer and
+// the wrong default: a person who asked for lifts asked for the lift, not for
+// the last third of it. So when the engine chose the parking itself, the
+// fastest trip is planned again with a stop at the bottom of the chain, and
+// that becomes the default; the fast plan is kept as an alternative by the
+// caller. A person who NAMED the stop keeps it — a stop is where you park.
+//
+// "Whenever possible" is two questions the map answers: is there a junction the
+// first mode can reach within parkReach of the valley station, and does anything
+// route from there. When either says no, the fastest trip stands.
+//
+// The parking is spliced into the waypoints as a stop, in the pair of them the
+// switch happened in, and driven to and walked from by the segment plans the
+// caller's own stop already uses — so the trip is built once, by one machinery,
+// and its seconds, metres and climb are the honest figures of the longer plan.
+// Nothing is added to the request, so Snapped still holds one entry per point.
+func (g *Graph) parkLowest(tp *tripPlan, routes []*Route, st *stats) *Route {
+	if len(routes) == 0 || len(tp.plan) < 2 || !tp.lifts || tp.parkPoint >= 1 {
+		return nil
+	}
+	fast := routes[0]
+	// Only a trip that really parked, at a trailhead the search chose: a
+	// parking with a Point is the caller's own stop, and no parking at all
+	// means no car ever moved.
+	if fast.Parking == nil || fast.Parking.Point != nil || fast.liftOn < 0 {
+		return nil
+	}
+	bottom := g.liftChainBottom(fast.liftOn)
+	if bottom < 0 {
+		return nil
+	}
+	x, y := g.XY(bottom)
+	p, d := g.NearestD(x, y, "park", tp.plan, parkReach)
+	if p < 0 || d > parkReach || p == fast.parkNode {
+		return nil
+	}
+	cut := fast.parkPair + 1
+	if cut < 1 || cut >= len(tp.nodes) {
+		return nil
+	}
+	low := *tp
+	low.nodes = insertAt(tp.nodes, cut, p)
+	low.stop = insertAt(tp.stop, cut, true)
+	low.force = insertAt(tp.force, cut, forcedLift{})
+	low.segPlans = make([][]int, len(low.nodes)-1)
+	for k := range low.segPlans {
+		if k < cut {
+			low.segPlans[k] = tp.plan[:1]
+		} else {
+			low.segPlans[k] = tp.plan[1:]
+		}
+	}
+	low.parkSeg, low.parkPoint = cut, -1
+	low.parkAt = g.ParkName(p, tp.plan[0])
+	lat, lon := g.LatLon(p)
+	low.parkLat, low.parkLon = round6(lat), round6(lon)
+	return g.trip(&low, nil, st)
+}
+
+// sameLine says a route is not an alternative to another one: more than four
+// fifths of what it travels was already in that one, so the two are one answer
+// drawn twice.
+func sameLine(r, prev *Route) bool {
+	if r.Meters <= 0 {
+		return false
+	}
+	shared := 0.0
+	for id, l := range r.stretches {
+		if _, ok := prev.stretches[id]; ok {
+			shared += l
+		}
+	}
+	return shared/r.Meters > 0.8
+}
+
+// insertAt puts v at index i, leaving the slice it was given alone.
+func insertAt[T any](s []T, i int, v T) []T {
+	out := make([]T, 0, len(s)+1)
+	out = append(out, s[:i]...)
+	out = append(out, v)
+	return append(out, s[i:]...)
 }
 
 // ------------------------------------------------------- the refusal cache
@@ -905,8 +1159,9 @@ type tripPlan struct {
 // nil the modes carry forward and a pair may change mode at a trailhead. Legs
 // are closed at STOPS only: a via continues the leg it is in, which is what
 // makes dragging a route reshape it instead of chopping it.
-func (g *Graph) trip(tp *tripPlan, pen map[int32]float64, st *stats) *Route {
-	r := &Route{stretches: map[int32]float64{}, Legs: []*Leg{}, Warnings: []string{}, parkNode: -1}
+func (g *Graph) trip(tp *tripPlan, pen *penalties, st *stats) *Route {
+	r := &Route{stretches: map[int32]float64{}, Legs: []*Leg{}, Warnings: []string{},
+		parkNode: -1, liftOn: -1}
 	cur := tp.plan // the modes still available: a pair starts where the last one ended
 	usedLift := false
 	usedFerrata := false
@@ -972,11 +1227,29 @@ func (g *Graph) trip(tp *tripPlan, pen map[int32]float64, st *stats) *Route {
 			}
 		}
 		for _, e := range edges {
-			if e.parked {
+			switch {
+			case e.parked:
 				r.Seconds += e.w
-				r.parkNode = e.node
-			} else if g.R.Stretches[e.st].Ferrata {
+				r.parkNode, r.parkPair = e.node, i
+			case g.isLift(e.st):
+				// Where the first ride is boarded: the station the chain rule
+				// asks its question about.
+				if r.liftOn < 0 {
+					s := g.R.Stretches[e.st]
+					on := g.dense[s.A]
+					if e.rev {
+						on = g.dense[s.B]
+					}
+					r.liftOn = on
+				}
+			case g.R.Stretches[e.st].Ferrata:
 				usedFerrata = true
+			}
+			// What was WALKED, in the order it was walked. The end of it is
+			// the approach, and the approach is the side of the mountain a
+			// day was spent on: see approachOf.
+			if e.mode == modeHike && !e.parked && !g.isLift(e.st) {
+				r.walkSts = append(r.walkSts, e.st)
 			}
 		}
 		span = append(span, edges...)
@@ -1075,15 +1348,24 @@ func (g *Graph) trip(tp *tripPlan, pen map[int32]float64, st *stats) *Route {
 		switch {
 		case !first || !walk:
 			// no switch happened: nothing to say
-		case parked && tp.parkPoint >= 1:
-			// left at a stop the caller named
+		case parked:
+			// Left at a stop: one the caller named, or — when parkPoint says
+			// the caller named none — the one parkLowest put at the foot of a
+			// lift chain. The page badges a stop only when Point names one, so
+			// a parking the engine chose carries none.
 			r.Seconds += switchCost
 			name := tp.parkAt
 			if name == "" {
 				name = "the stop"
+				if tp.parkPoint < 1 {
+					name = "the trailhead"
+				}
 			}
-			idx := tp.parkPoint
-			r.Parking = &Parking{Point: &idx, Name: tp.parkAt, Lat: tp.parkLat, Lon: tp.parkLon}
+			r.Parking = &Parking{Name: tp.parkAt, Lat: tp.parkLat, Lon: tp.parkLon}
+			if tp.parkPoint >= 1 {
+				idx := tp.parkPoint
+				r.Parking.Point = &idx
+			}
 			r.Warnings = append(r.Warnings, "parked at "+name)
 		case r.parkNode >= 0:
 			// left at a trailhead the search chose, inside a leg

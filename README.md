@@ -53,7 +53,7 @@ Everything is JSON and every coordinate on the wire is WGS84 lat/lon. The handle
 
 | endpoint | what it does |
 |---|---|
-| `POST /api/route` | the product: 2-6 stops plus any number of vias, a mode, a grade, `alternatives` 1 or 3, an optional avoid list. Answers routes, or `routes: []` with a `reason` (and `neededGrade` when a harder grade would work) |
+| `POST /api/route` | the product: 2-20 stops plus vias (40 entries in all), a mode, a grade, `alternatives` 1 or 3, an optional avoid list. Answers routes, or `routes: []` with a `reason` (and `neededGrade` when a harder grade would work) |
 | `GET /api/geocode?q=` | places, peaks, huts, passes, streets and trail numbers, case- and accent-insensitive |
 | `GET /api/reverse?lat=&lon=&mode=` | what the nearest routable junction is called, in that mode's vocabulary |
 | `GET /api/config` | what the page needs at run time: styles, terrain, data dates, attribution |

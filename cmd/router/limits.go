@@ -73,6 +73,15 @@ const (
 	perHour   = 600
 )
 
+// What one question may hold. The page (web/app/src/lib/limits.ts) and the
+// shared link agree with these; a question past them is refused here and at
+// the queue, whichever door it comes through.
+const (
+	maxStops   = 20 // start, stops, destination
+	maxEntries = 40 // the whole sequence, vias included
+	maxAvoids  = 20
+)
+
 type window struct {
 	start time.Time
 	n     int
