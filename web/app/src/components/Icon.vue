@@ -52,6 +52,8 @@ const PATHS: Record<string, string> = {
   lift: '<path d="M2.6 5.4l18.8 3.5"/><path d="M12 7.2v2.1"/><rect x="7.7" y="9.3" width="8.6" height="7.8" rx="1.8"/><path d="M7.7 12.9h8.6"/>',
   panelHide: '<rect x="3.2" y="4.6" width="17.6" height="14.8" rx="2.4"/><path d="M10 4.6v14.8"/><path d="M17.2 9.9L14.6 12l2.6 2.1"/>',
   panelShow: '<rect x="3.2" y="4.6" width="17.6" height="14.8" rx="2.4"/><path d="M10 4.6v14.8"/><path d="M14.4 9.9L17 12l-2.6 2.1"/>',
+  download: '<path d="M12 4.2v10.6"/><path d="M7.8 10.8L12 15l4.2-4.2"/><path d="M5 15.4V18a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2.6"/>',
+  cloudOff: '<path d="M7.4 18.4h9.2a3.9 3.9 0 0 0 1-7.7 5.6 5.6 0 0 0-8.3-3.6"/><path d="M6.6 9.6a4.4 4.4 0 0 0 .8 8.8"/><path d="M3.6 3.6l16.8 16.8"/>',
 };
 
 const body = computed(() => PATHS[props.name] ?? '');

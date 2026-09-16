@@ -4,6 +4,7 @@ import Icon from './Icon.vue';
 import { readLocalRaw, writeLocalRaw } from '../lib/storage';
 import { hasResult, slots } from '../composables/usePlanner';
 import { hasHover, isCompact, sheetHeight } from '../composables/useMedia';
+import { t } from '../i18n';
 
 const KEY = 'hint.seen';
 const shown = ref(false);
@@ -43,8 +44,8 @@ watch([hasResult, () => slots.value.some((s) => s.point)], ([has, any]) => {
         :style="{ background: 'var(--surface)', boxShadow: 'var(--shadow-2)' }"
         role="note"
       >
-        <span>{{ hasHover ? 'Click' : 'Tap' }} anywhere on the map to set a point.</span>
-        <button class="btn-quiet -my-1 p-1.5 max-[899px]:-my-2" aria-label="Got it" title="Got it" @click="dismiss">
+        <span>{{ hasHover ? t('hint.click') : t('hint.tap') }}</span>
+        <button class="btn-quiet -my-1 p-1.5 max-[899px]:-my-2" :aria-label="t('hint.gotIt')" :title="t('hint.gotIt')" @click="dismiss">
           <Icon name="x" :size="13" />
         </button>
       </p>

@@ -16,11 +16,34 @@ import {
   sentence,
 } from '../lib/format';
 import type { RouteAlternative } from '../lib/types';
-import { avoids, filledPoints, grade, lifts, mode, shareQuery } from '../composables/usePlanner';
+import {
+  avoids,
+  filledPoints,
+  grade,
+  lastResponse,
+  lifts,
+  mode,
+  shareQuery,
+} from '../composables/usePlanner';
 import { isCompact } from '../composables/useMedia';
 import { shareUrl } from '../lib/url';
 import { addFavourite } from '../composables/useFavourites';
+import {
+  cancelDownload,
+  downloadFor,
+  downloadPercent,
+  downloading,
+  estimateFor,
+  fmtBytes,
+  online,
+  openSavedView,
+  saveRoute,
+  savedRoutes,
+} from '../composables/useOffline';
+import { queryKey } from '../lib/offline';
 import { toast } from '../composables/useToast';
+import { t } from '../i18n';
+import { wayName } from '../i18n/service';
 
 const props = defineProps<{
   route: RouteAlternative;
@@ -91,14 +114,17 @@ const journey = computed(() => {
     if (seen.has(kind)) continue;
     seen.add(kind);
     if (kind === 'wheels' && wheels.value) {
-      const by = wheels.value.mode === 'bike' ? 'bike' : 'car';
       out.push(
-        `${fmtDuration(wheels.value.seconds)} by ${by} (${fmtDistance(wheels.value.meters)}, ${fmtAscent(wheels.value.ascent)})`,
+        t(wheels.value.mode === 'bike' ? 'card.byBike' : 'card.byCar', {
+          duration: fmtDuration(wheels.value.seconds),
+          distance: fmtDistance(wheels.value.meters),
+          ascent: fmtAscent(wheels.value.ascent),
+        }),
       );
     } else if (kind === 'ride' && ride.value) {
-      out.push(`${fmtDuration(ride.value.seconds)} by lift (${fmtAscent(ride.value.ascent)})`);
+      out.push(t('card.byLift', { duration: fmtDuration(ride.value.seconds), ascent: fmtAscent(ride.value.ascent) }));
     } else if (kind === 'walk' && walk.value) {
-      out.push(`${fmtDuration(walk.value.seconds)} on foot (${fmtDistance(walk.value.meters)})`);
+      out.push(t('card.walking', { duration: fmtDuration(walk.value.seconds), distance: fmtDistance(walk.value.meters) }));
     }
   }
   return out;
@@ -115,7 +141,7 @@ const delta = computed(() => {
   if (props.best === null || props.index === 0) return '';
   const d = Math.round((props.route.seconds - props.best) / 60);
   if (d <= 0) return '';
-  return `+${d < 60 ? `${d} min` : fmtDuration(d * 60)}`;
+  return `+${fmtDuration(d * 60)}`;
 });
 
 const isParking = (w: string) => /^parked\b/i.test(w.trim());
@@ -133,8 +159,33 @@ const parkingNote = computed(() => {
   // saying "parked" on a pure walk would be plainly wrong.
   if (!props.route.legs.some((l) => l.mode === 'car' || l.mode === 'bike')) return '';
   if ((props.route.warnings ?? []).some(isParking)) return '';
-  return `Parked at ${p.name || 'the trailhead'}`;
+  return t('card.parkedAt', { name: wayName(p.name) || t('card.trailhead') });
 });
+
+/**
+ * Offline is a property of the question, not of the alternative on screen:
+ * one key covers the whole answer, whichever of the three is open.
+ */
+const offlineKey = computed(() => queryKey(shareQuery()));
+const savedHere = computed(() => savedRoutes.value.find((r) => r.key === offlineKey.value));
+const savingHere = computed(() => downloading.value?.key === offlineKey.value);
+/** Said before the button is pressed, because the answer is in megabytes. */
+const areaEstimate = computed(() => {
+  const res = lastResponse.value;
+  return res?.routes?.length ? estimateFor(shareQuery(), res) : 0;
+});
+
+/** Keep the answer first, then go for the ground: the two can fail apart. */
+async function saveOffline() {
+  const res = lastResponse.value;
+  if (!res?.routes?.length) return;
+  try {
+    const rec = await saveRoute(shareQuery(), res);
+    await downloadFor(rec);
+  } catch {
+    toast(t('offline.couldNotSave'));
+  }
+}
 
 const naming = ref(false);
 const favName = ref('');
@@ -155,7 +206,7 @@ async function share() {
   // On a phone the system sheet is the thing people actually expect.
   if (isCompact.value && typeof navigator.share === 'function') {
     try {
-      await navigator.share({ url, title: 'Ometto — a route in Trentino-Alto Adige' });
+      await navigator.share({ url, title: t('meta.shareTitle') });
       return;
     } catch (e) {
       if ((e as Error)?.name === 'AbortError') return;
@@ -164,14 +215,14 @@ async function share() {
   }
   try {
     await navigator.clipboard.writeText(url);
-    toast('Link copied');
+    toast(t('card.linkCopied'));
     return;
   } catch {
     /* insecure context, or permission refused */
   }
   if (typeof navigator.share === 'function') {
     try {
-      await navigator.share({ url, title: 'Ometto — a route in Trentino-Alto Adige' });
+      await navigator.share({ url, title: t('meta.shareTitle') });
       return;
     } catch (e) {
       if ((e as Error)?.name === 'AbortError') return;
@@ -186,22 +237,22 @@ async function copyFromField() {
   el.select();
   try {
     await navigator.clipboard.writeText(el.value);
-    toast('Link copied');
+    toast(t('card.linkCopied'));
     shareLink.value = '';
   } catch {
     try {
       document.execCommand('copy');
-      toast('Link copied');
+      toast(t('card.linkCopied'));
       shareLink.value = '';
     } catch {
-      toast('Select the link and copy it.');
+      toast(t('card.selectAndCopy'));
     }
   }
 }
 
 async function startNaming() {
   const last = filledPoints.value[filledPoints.value.length - 1];
-  favName.value = last?.name ?? 'Destination';
+  favName.value = last?.name != null ? wayName(last.name) : t('card.destination');
   naming.value = true;
   await nextTick();
   favInput.value?.select();
@@ -210,7 +261,7 @@ async function startNaming() {
 async function saveFavourite() {
   const last = filledPoints.value[filledPoints.value.length - 1];
   if (!last) return;
-  const name = favName.value.trim() || last.name || 'Saved place';
+  const name = favName.value.trim() || wayName(last.name) || t('card.savedPlace');
   naming.value = false;
   try {
     // Keep the plan with the place, so the favourite can be travelled to the
@@ -225,9 +276,9 @@ async function saveFavourite() {
         avoid: avoids.value.slice(),
       },
     );
-    toast(`${name} saved to favourites`);
+    toast(t('card.saved', { name }));
   } catch {
-    toast('That could not be saved.');
+    toast(t('card.couldNotSave'));
   }
 }
 </script>
@@ -240,7 +291,7 @@ async function saveFavourite() {
     <button
       class="w-full px-3 pt-2.5 pb-2.5 text-left"
       :aria-pressed="selected"
-      :aria-label="`Route ${index + 1}: ${fmtDuration(route.seconds)}, ${fmtDistance(route.meters)}`"
+      :aria-label="t('card.routeAria', { n: index + 1, duration: fmtDuration(route.seconds), distance: fmtDistance(route.meters) })"
       @click="emit('select')"
     >
       <div class="flex items-baseline gap-2">
@@ -248,7 +299,7 @@ async function saveFavourite() {
           {{ fmtDuration(route.seconds) }}
         </span>
         <span v-if="delta" class="text-[12px] text-faint">{{ delta }}</span>
-        <span v-else-if="index === 0 && best !== null" class="text-[11px] font-medium text-muted">Fastest</span>
+        <span v-else-if="index === 0 && best !== null" class="text-[11px] font-medium text-muted">{{ t('card.fastest') }}</span>
         <span class="flex-1" />
         <span class="flex items-center gap-1">
           <Icon v-for="m in modes" :key="m" :name="m" :size="16" :style="{ color: `var(--${m})` }" />
@@ -257,8 +308,8 @@ async function saveFavourite() {
           v-if="route.grade"
           class="ml-0.5 rounded px-1.5 py-0.5 text-[11px] font-semibold"
           :style="{ color: `var(--grade-${route.grade.toLowerCase()})`, background: 'var(--surface-2)' }"
-          :title="`Hardest section on this route: grade ${route.grade}`"
-          :aria-label="`Hardest section on this route: grade ${route.grade}`"
+          :title="t('card.hardest', { grade: route.grade })"
+          :aria-label="t('card.hardest', { grade: route.grade })"
         >
           {{ route.grade }}
         </span>
@@ -267,15 +318,16 @@ async function saveFavourite() {
       <div class="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[12.5px] text-muted">
         <span>{{ fmtDistance(route.meters) }}</span>
         <span class="flex items-center gap-1">
-          <Icon name="ascent" :size="13" />{{ fmtAscent(headAscent) }}<template v-if="mixed">
-            on foot</template>
+          <Icon name="ascent" :size="13" />{{ fmtAscent(headAscent) }}<template v-if="mixed">{{
+            ' ' + t('card.onFoot')
+          }}</template>
         </span>
         <span class="flex items-center gap-1">
           <Icon name="descent" :size="13" />{{ fmtDescent(headDescent) }}
         </span>
       </div>
 
-      <p v-if="mixed" class="mt-1 text-[12px] text-muted">{{ journey.join(', then ') }}</p>
+      <p v-if="mixed" class="mt-1 text-[12px] text-muted">{{ journey.join(t('card.journeyJoin')) }}</p>
 
       <p v-if="comp" class="mt-1 truncate text-[11.5px] text-faint">{{ comp }}</p>
     </button>
@@ -337,17 +389,17 @@ async function saveFavourite() {
       </div>
 
       <div v-if="route.legs?.length > 1" class="mt-3">
-        <h4 class="label mb-1.5">Legs</h4>
+        <h4 class="label mb-1.5">{{ t('card.legs') }}</h4>
         <LegList :legs="route.legs" />
       </div>
 
       <div v-if="route.steps?.length" class="mt-3">
-        <h4 class="label mb-0.5">Steps</h4>
+        <h4 class="label mb-0.5">{{ t('card.steps') }}</h4>
         <StepList :steps="route.steps" />
       </div>
 
       <div v-if="shareLink" class="mt-3">
-        <label class="label mb-1 block" :for="`share-${route.id}`">Link to this route</label>
+        <label class="label mb-1 block" :for="`share-${route.id}`">{{ t('card.linkLabel') }}</label>
         <div class="flex items-center gap-1.5">
           <input
             :id="`share-${route.id}`"
@@ -358,17 +410,60 @@ async function saveFavourite() {
             spellcheck="false"
             @focus="($event.target as HTMLInputElement).select()"
           />
-          <button class="btn-primary px-3 py-1.5 text-[12.5px]" @click="copyFromField">Copy</button>
-          <button class="btn-quiet px-2 py-1.5 text-[12.5px]" @click="shareLink = ''">Done</button>
+          <button class="btn-primary px-3 py-1.5 text-[12.5px]" @click="copyFromField">{{ t('card.copy') }}</button>
+          <button class="btn-quiet px-2 py-1.5 text-[12.5px]" @click="shareLink = ''">{{ t('card.done') }}</button>
         </div>
       </div>
 
-      <div v-else-if="!naming" class="mt-3 flex items-center gap-1.5">
+      <div v-else-if="!naming" class="mt-3 flex flex-wrap items-center gap-1.5">
         <button class="btn-quiet flex items-center gap-1.5 px-2 py-1.5 text-[12.5px]" @click="share">
-          <Icon name="share" :size="14" /> Share
+          <Icon name="share" :size="14" /> {{ t('card.share') }}
         </button>
         <button class="btn-quiet flex items-center gap-1.5 px-2 py-1.5 text-[12.5px]" @click="startNaming">
-          <Icon name="star" :size="14" /> Save destination
+          <Icon name="star" :size="14" /> {{ t('card.saveDestination') }}
+        </button>
+
+        <!-- The answer is kept the moment this is pressed; the map of the
+             area follows it, and can be waited for or given up on. -->
+        <template v-if="savingHere">
+          <span class="flex items-center gap-1.5 px-2 py-1.5 text-[12.5px] text-muted">
+            <Icon name="download" :size="14" />
+            {{ t('offline.savingPercent', { n: downloadPercent }) }}
+            <span class="text-faint">
+              · {{ t('offline.aboutToDownload', { size: fmtBytes(downloading?.estimated ?? 0) }) }}
+            </span>
+          </span>
+          <button class="btn-quiet px-2 py-1.5 text-[12.5px]" @click="cancelDownload()">
+            {{ t('fav.cancel') }}
+          </button>
+        </template>
+        <button
+          v-else-if="savedHere?.tiles.done"
+          class="btn-quiet flex items-center gap-1.5 px-2 py-1.5 text-[12.5px]"
+          :title="t('offline.openSaved')"
+          @click="openSavedView()"
+        >
+          <Icon name="check" :size="14" /> {{ t('offline.saved') }}
+          <span class="text-faint">· {{ fmtBytes(savedHere.tiles.bytes) }}</span>
+        </button>
+        <button
+          v-else-if="savedHere"
+          class="btn-quiet flex items-center gap-1.5 px-2 py-1.5 text-[12.5px]"
+          :disabled="!!downloading || !online"
+          @click="downloadFor(savedHere)"
+        >
+          <Icon name="download" :size="14" /> {{ t('offline.downloadMap') }}
+        </button>
+        <button
+          v-else
+          class="btn-quiet flex items-center gap-1.5 px-2 py-1.5 text-[12.5px]"
+          :disabled="!!downloading"
+          @click="saveOffline"
+        >
+          <Icon name="download" :size="14" /> {{ t('offline.save') }}
+          <span v-if="areaEstimate" class="text-faint">
+            · {{ t('offline.aboutToDownload', { size: fmtBytes(areaEstimate) }) }}
+          </span>
         </button>
       </div>
       <form v-else class="mt-3 flex items-center gap-1.5" @submit.prevent="saveFavourite">
@@ -376,11 +471,11 @@ async function saveFavourite() {
           ref="favInput"
           v-model="favName"
           class="field h-9 min-w-0 flex-1 px-2 text-[13px] outline-none"
-          aria-label="Favourite name"
+          :aria-label="t('fav.name')"
           @keydown.esc.prevent="naming = false"
         />
-        <button type="submit" class="btn-primary px-3 py-1.5 text-[12.5px]">Save</button>
-        <button type="button" class="btn-quiet px-2 py-1.5 text-[12.5px]" @click="naming = false">Cancel</button>
+        <button type="submit" class="btn-primary px-3 py-1.5 text-[12.5px]">{{ t('fav.save') }}</button>
+        <button type="button" class="btn-quiet px-2 py-1.5 text-[12.5px]" @click="naming = false">{{ t('fav.cancel') }}</button>
       </form>
     </div>
   </article>

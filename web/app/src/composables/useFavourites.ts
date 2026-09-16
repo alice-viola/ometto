@@ -1,5 +1,6 @@
-import { ref } from 'vue';
+import { computed, ref, shallowRef } from 'vue';
 import { api, ApiError } from '../lib/api';
+import { t } from '../i18n';
 import { readLocal, writeLocal } from '../lib/storage';
 import type { AvoidPoint, Favourite, Grade, Mode, PlaceKind, Waypoint } from '../lib/types';
 
@@ -36,19 +37,18 @@ function forgetPlan(id: string) {
 
 export const favourites = ref<Favourite[]>([]);
 export const favouritesLoaded = ref(false);
-export const favouritesError = ref('');
+const favouritesSay = shallowRef<(() => string) | null>(null);
+export const favouritesError = computed(() => favouritesSay.value?.() ?? '');
 
 export async function loadFavourites(): Promise<void> {
   try {
     favourites.value = await api.favourites();
-    favouritesError.value = '';
+    favouritesSay.value = null;
   } catch (e) {
     favourites.value = [];
     // Routing keeps working while the store is down; say only what is true.
-    favouritesError.value =
-      e instanceof ApiError && (e.status === 503 || e.status === 429)
-        ? 'Saved places are unavailable right now. Routing still works.'
-        : 'Favourites are not available right now.';
+    const degraded = e instanceof ApiError && (e.status === 503 || e.status === 429);
+    favouritesSay.value = () => (degraded ? t('fav.degraded') : t('fav.unavailable'));
   } finally {
     favouritesLoaded.value = true;
   }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import Icon from './Icon.vue';
-import { MODE_LABELS } from '../lib/format';
+import { modeLabel } from '../lib/format';
+import { t } from '../i18n';
 import type { Mode } from '../lib/types';
 import { mode } from '../composables/usePlanner';
 
@@ -25,14 +26,14 @@ function onKey(e: KeyboardEvent, m: Mode) {
 </script>
 
 <template>
-  <div role="radiogroup" aria-label="Travel mode" class="grid gap-1.5">
+  <div role="radiogroup" :aria-label="t('top.travelMode')" class="grid gap-1.5">
     <div class="grid grid-cols-3 gap-1.5">
       <button
         v-for="m in ROW1"
         :id="`mode-${m}`"
         :key="m"
         role="radio"
-        :aria-label="MODE_LABELS[m]"
+        :aria-label="modeLabel(m)"
         :aria-checked="mode === m"
         :tabindex="mode === m ? 0 : -1"
         class="mode-chip"
@@ -41,7 +42,7 @@ function onKey(e: KeyboardEvent, m: Mode) {
         @keydown="onKey($event, m)"
       >
         <Icon :name="m" :size="19" />
-        <span>{{ MODE_LABELS[m] }}</span>
+        <span>{{ modeLabel(m) }}</span>
       </button>
     </div>
     <div class="grid grid-cols-2 gap-1.5">
@@ -50,7 +51,7 @@ function onKey(e: KeyboardEvent, m: Mode) {
         :id="`mode-${m}`"
         :key="m"
         role="radio"
-        :aria-label="MODE_LABELS[m]"
+        :aria-label="modeLabel(m)"
         :aria-checked="mode === m"
         :tabindex="mode === m ? 0 : -1"
         class="mode-chip"
@@ -61,7 +62,7 @@ function onKey(e: KeyboardEvent, m: Mode) {
         <span class="flex items-center gap-1">
           <Icon v-for="(ic, i) in icons(m)" :key="i" :name="ic" :size="18" />
         </span>
-        <span>{{ MODE_LABELS[m] }}</span>
+        <span>{{ modeLabel(m) }}</span>
       </button>
     </div>
   </div>

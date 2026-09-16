@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import { onBeforeUnmount, onMounted, ref, shallowRef, watch, watchEffect } from 'vue';
 import maplibregl, { type LngLatLike, type Map as MlMap, type Marker, type MapOptions } from 'maplibre-gl';
 import mlcontour from 'maplibre-contour';
 import { DEM_MAXZOOM, REGION_BOUNDS, loadStyleSpec, readTokens, type Tokens } from '../map/style';
@@ -23,6 +23,12 @@ import {
   tuneDarkStyle,
 } from '../map/layers';
 import { markerElement } from '../map/markers';
+import {
+  addPosition,
+  createLocateControl,
+  setPosition,
+  type LocateControl,
+} from '../map/position';
 import { makeFallbackImage } from '../map/icons';
 import { api } from '../lib/api';
 import { cragDetail } from '../lib/format';
@@ -39,6 +45,12 @@ import {
   topInset,
 } from '../composables/useMedia';
 import { hoverPoint } from '../composables/useHover';
+import {
+  following,
+  position,
+  status as liveStatus,
+  toggle as toggleLocate,
+} from '../composables/useLocation';
 import {
   avoidedWays,
   insertVia,
@@ -64,6 +76,10 @@ import type { FeatureCollection, Waypoint } from '../lib/types';
 import MapPopover from './MapPopover.vue';
 import type { PopoverState } from '../map/popover';
 import FirstVisitHint from './FirstVisitHint.vue';
+import { locale, t } from '../i18n';
+import { featureKind, wayName } from '../i18n/service';
+import { toast } from '../composables/useToast';
+import { readLocalRaw, writeLocalRaw } from '../lib/storage';
 
 function closePopover() {
   popover.value = null;
@@ -287,11 +303,14 @@ function applyCustom(m: MlMap) {
   if (liftData) addLifts(m, liftData, tokens);
   if (cragData) addCrags(m, cragData, tokens);
   addRouteLayers(m, tokens);
+  // Last, so where you are is over the answer and not under it.
+  addPosition(m, tokens);
   applyVisibility(m);
   applyTerrain(m);
   pushRoutes();
   pushAvoided();
   pushHover();
+  pushPosition();
   rebuildMarkers();
 }
 
@@ -358,6 +377,49 @@ function pushHover() {
   } as never);
 }
 
+function pushPosition() {
+  const m = map.value;
+  if (m) setPosition(m, position.value);
+}
+
+/**
+ * Following. Each fix eases the map onto it, at most once a second: a phone
+ * that is really moving delivers about that many, and an ease begun on top of
+ * an ease is what makes a map look drunk. The zoom is left where the person
+ * put it, with one exception — a region-wide view is no use to someone
+ * walking, so the first fix goes in to 15. The padding is the same band the
+ * answers are framed into, so on a phone the dot lands above the sheet.
+ */
+let lastEase = 0;
+let easeTimer: number | undefined;
+let firstEase = true;
+
+function easeToPosition() {
+  const m = map.value;
+  const p = position.value;
+  if (!m || !p || !following.value) return;
+  lastEase = Date.now();
+  const zoom = firstEase && m.getZoom() < 13 ? 15 : m.getZoom();
+  firstEase = false;
+  m.easeTo({ center: [p.lon, p.lat], zoom, duration: 600, padding: padding() });
+}
+
+function followPosition() {
+  if (!following.value) return;
+  const wait = 1000 - (Date.now() - lastEase);
+  if (wait <= 0) {
+    easeToPosition();
+    return;
+  }
+  // Too soon. The fix is not dropped: it is eased to when the second is up,
+  // and any fix arriving before then simply overwrites what will be used.
+  if (easeTimer !== undefined) return;
+  easeTimer = window.setTimeout(() => {
+    easeTimer = undefined;
+    easeToPosition();
+  }, wait);
+}
+
 function rebuildMarkers() {
   const m = map.value;
   if (!m || dragging) return;
@@ -384,38 +446,158 @@ function rebuildMarkers() {
     el.setAttribute('tabindex', '0');
     const what =
       role === 'start'
-        ? 'Start'
+        ? t('map.start')
         : role === 'destination'
-          ? 'Destination'
+          ? t('map.destination')
           : role === 'parking'
-            ? 'Where you park'
+            ? t('point.park')
             : role === 'via'
-              ? 'Via point'
-              : `Stop ${order}`;
-    el.setAttribute('aria-label', `${what}: ${p.name ?? 'dropped point'}. Drag to move.`);
+              ? t('map.via')
+              : t('map.stop', { n: order });
+    el.setAttribute('aria-label', t('map.markerAria', { what, name: wayName(p.name) || t('map.droppedPoint') }));
     if (role === 'via') {
       el.addEventListener('click', (ev) => {
         ev.stopPropagation();
         openViaPopover(entry.index, p.lon, p.lat);
       });
     }
+    // A cursor drags a pin outright. A thumb has to pick it up first: see
+    // holdToMove. Either way, where it was is kept, for the toast's Undo.
+    const thumb = !hasHover.value;
     const marker = new maplibregl.Marker({
       element: el,
-      draggable: true,
+      draggable: !thumb,
       anchor: role === 'destination' ? 'bottom' : 'center',
     })
       .setLngLat([p.lon, p.lat])
       .addTo(m);
-    marker.on('dragstart', () => (dragging = true));
-    marker.on('dragend', () => {
-      const ll = marker.getLngLat();
-      entry.slot.point = { ...p, lat: ll.lat, lon: ll.lng, name: p.name };
+    const lift = () => (dragging = true);
+    const drop = (lat: number, lon: number) => {
+      const before = { ...p };
+      entry.slot.point = { ...p, lat, lon, name: p.name };
       dragging = false;
       // A via has no name to lose and no note to earn: it is only a shape.
-      if (!p.via) void renameAfterDrag(entry.index, ll.lat, ll.lng);
+      if (!p.via) void renameAfterDrag(entry.index, lat, lon);
+      offerUndo(entry.slot.key, before);
+    };
+    marker.on('dragstart', lift);
+    marker.on('dragend', () => {
+      const ll = marker.getLngLat();
+      drop(ll.lat, ll.lng);
     });
+    if (thumb) holdToMove(m, marker, el, lift, drop);
     markers.push(marker);
   });
+}
+
+/**
+ * A moved point can be put back, from the toast, for the six seconds it
+ * shows: the route has already re-planned itself around the move, and the
+ * move may well have been a thumb reaching for the map.
+ */
+function offerUndo(slotKey: string, before: Waypoint) {
+  toast(t('map.pointMoved'), {
+    label: t('map.undo'),
+    run: () => {
+      // The slot, not its coordinates: the answer nudges a dropped point onto
+      // the road within the second, and a fresh question makes new slots.
+      const slot = slots.value.find((s) => s.key === slotKey);
+      if (slot?.point) slot.point = { ...before };
+    },
+  });
+}
+
+/** Held still for this long, a pin comes away under the thumb. */
+const HOLD_MS = 320;
+/** Moved further than this before then, the touch was a swipe, and the map's. */
+const HOLD_SLOP = 8;
+
+/**
+ * On a phone a pin is not dragged, it is picked up: held for a third of a
+ * second, then carried, then let go. A swipe that merely starts on one pans
+ * the map, as every swipe does — which is the whole point. The pin under a
+ * thumb that was reaching for the map used to come away with it, and the
+ * route re-planned itself around the mistake before anyone had noticed.
+ *
+ * Pointer events, because MapLibre's own drag is a mouse gesture with no
+ * notion of holding; the map's pan is switched off while the pin is held, and
+ * back on when it lands.
+ */
+function holdToMove(
+  m: MlMap,
+  marker: Marker,
+  el: HTMLElement,
+  onLift: () => void,
+  onDrop: (lat: number, lon: number) => void,
+) {
+  el.style.touchAction = 'none';
+  let timer: number | undefined;
+  let start: { x: number; y: number; id: number } | null = null;
+  let lifted = false;
+
+  const cancel = () => {
+    clearTimeout(timer);
+    timer = undefined;
+    start = null;
+  };
+  const carry = (e: PointerEvent) => {
+    const r = m.getContainer().getBoundingClientRect();
+    marker.setLngLat(m.unproject([e.clientX - r.left, e.clientY - r.top]));
+  };
+
+  el.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') return;
+    start = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    timer = window.setTimeout(() => {
+      timer = undefined;
+      lifted = true;
+      el.classList.add('is-lifted');
+      try {
+        el.setPointerCapture(start!.id);
+      } catch {
+        /* the pointer is already gone: the next move says so */
+      }
+      m.dragPan.disable();
+      navigator.vibrate?.(12);
+      onLift();
+    }, HOLD_MS);
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (lifted) {
+      carry(e);
+      return;
+    }
+    // Off on its way before the hold was up: a swipe, and the map's.
+    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > HOLD_SLOP) cancel();
+  });
+  const end = (e: PointerEvent) => {
+    if (!lifted) {
+      // A tap, not a hold: the one moment to say how a pin is moved.
+      if (start && timer !== undefined) hintHold();
+      cancel();
+      return;
+    }
+    lifted = false;
+    el.classList.remove('is-lifted');
+    try {
+      el.releasePointerCapture(e.pointerId);
+    } catch {
+      /* already released */
+    }
+    m.dragPan.enable();
+    const ll = marker.getLngLat();
+    cancel();
+    onDrop(ll.lat, ll.lng);
+  };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+}
+
+/** Said once per browser, the first time a pin is tapped rather than held. */
+function hintHold() {
+  if (readLocalRaw('hint.hold') === '1') return;
+  writeLocalRaw('hint.hold', '1');
+  toast(t('map.holdToMove'));
 }
 
 async function renameAfterDrag(index: number, lat: number, lon: number) {
@@ -520,7 +702,7 @@ function openViaPopover(index: number, lng: number, lat: number) {
   const m = map.value;
   if (!m) return;
   const pt = m.project([lng, lat]);
-  popover.value = { lngLat: [lng, lat], x: pt.x, y: pt.y, name: 'Via point', loading: false, viaIndex: index };
+  popover.value = { lngLat: [lng, lat], x: pt.x, y: pt.y, name: t('map.via'), loading: false, viaIndex: index };
 }
 
 /**
@@ -553,16 +735,17 @@ function featureAt(m: MlMap, point: maplibregl.Point) {
     const p = (first.properties ?? {}) as Record<string, unknown>;
     const layer = first.layer.id;
     if (layer === LYR.avoided || layer === LYR.avoidedHatch) {
-      return { name: String(p.name || 'that way'), kind: 'avoided', avoidedId: String(p.id ?? '') };
+      return { name: String(p.name || t('search.thatWay')), kind: 'avoided', avoidedId: String(p.id ?? '') };
     }
     if (layer === LYR.crag || layer === LYR.cragSector) {
       // A sector is named after its wall, as it is in the search results.
-      const own = String(p.name || 'Crag');
+      const own = String(p.name || t('map.crag'));
       return { name: p.parent ? `${own} (${String(p.parent)})` : own, kind: 'crag', detail: cragDetail(p) };
     }
     const kind =
       layer === LYR.lifts ? 'lift' : layer === LYR.sat ? 'trail' : String(p.kind ?? 'place');
-    const name = String(p.name || p.numero || kind);
+    // Unnamed, a feature is called by what it is, in the page's language.
+    const name = p.name || p.numero ? String(p.name || p.numero) : featureKind(kind);
     return { name, kind };
   }
 
@@ -571,7 +754,7 @@ function featureAt(m: MlMap, point: maplibregl.Point) {
     if (!sl || !BASE_SOURCE_LAYERS.includes(sl)) continue;
     const p = (f.properties ?? {}) as Record<string, unknown>;
     const cls = String(p.class ?? p.subclass ?? sl);
-    const name = String(p.name || cls).replace(/_/g, ' ');
+    const name = p.name ? String(p.name).replace(/_/g, ' ') : featureKind(cls);
     return { name, kind: cls };
   }
   return null;
@@ -605,6 +788,26 @@ async function openPopover(lng: number, lat: number) {
       popover.value = { ...popover.value, name: `${lat.toFixed(4)}, ${lng.toFixed(4)}`, loading: false };
   }
 }
+
+const locate = shallowRef<LocateControl | null>(null);
+
+function releaseFollow(e: { originalEvent?: unknown }) {
+  if (e?.originalEvent && following.value) following.value = false;
+}
+
+/** The button's four states, said in the page's language. */
+watchEffect(() => {
+  locate.value?.update({
+    locating: liveStatus.value === 'locating',
+    on: liveStatus.value === 'on',
+    following: following.value,
+    label: following.value
+      ? t('live.stopFollowing')
+      : liveStatus.value === 'on'
+        ? t('live.followPosition')
+        : t('live.showPosition'),
+  });
+});
 
 onMounted(async () => {
   if (!host.value) return;
@@ -642,6 +845,10 @@ onMounted(async () => {
   // and the only way to measure a frame on a phone.
   (window as unknown as { __map?: MlMap }).__map = m;
   m.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }), 'top-right');
+  // Under the zoom group, in the same dress. The phone has its own button over
+  // the sheet, and hides this whole corner.
+  locate.value = createLocateControl(toggleLocate);
+  m.addControl(locate.value, 'top-right');
   m.addControl(new maplibregl.ScaleControl({ maxWidth: 96, unit: 'metric' }), 'bottom-left');
   m.keyboard.enable();
 
@@ -673,6 +880,13 @@ onMounted(async () => {
   m.on('dragstart', closePopover);
   m.on('zoomstart', closePopover);
   m.on('zoomend', () => applyTerrain(m));
+  // A pan, a pinch or a twist by hand gives up the following: the map is being
+  // read now, not driven. `originalEvent` is the whole test — the eases we make
+  // ourselves raise the same events with nothing behind them. The dot stays;
+  // the button offers to pick it up again.
+  m.on('dragstart', releaseFollow);
+  m.on('zoomstart', releaseFollow);
+  m.on('rotatestart', releaseFollow);
 
   m.on('mousedown', (e) => beginRouteDrag(m, e));
   m.on('touchstart', (e) => beginRouteDrag(m, e));
@@ -719,6 +933,8 @@ window.addEventListener('keydown', onEscape);
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onEscape);
+  clearTimeout(easeTimer);
+  clearTimeout(topTimer);
   for (const mk of markers) mk.remove();
   map.value?.remove();
 });
@@ -733,6 +949,12 @@ function reframeAfterResize() {
   if (!m) return;
   const settle = () => {
     m.resize();
+    // While the map is following, the new shape is still the person's own
+    // frame: keep the dot in it rather than throwing the view back to the route.
+    if (following.value) {
+      easeToPosition();
+      return;
+    }
     if (routes.value.length) fitToResult();
     else if (slots.value.some((s) => s.point)) fitToPoints(true);
     else fitRegion();
@@ -748,6 +970,9 @@ watch(panelHidden, reframeAfterResize);
 watch(frameRequest, () => {
   const m = map.value;
   if (!m) return;
+  // Asking for the whole route is asking for this view and not another: the
+  // following would have taken it back within the second.
+  following.value = false;
   if (routes.value.length) fitToResult();
   else if (slots.value.some((s) => s.point)) fitToPoints(true);
   else fitRegion();
@@ -758,6 +983,7 @@ watch(sheetSettled, () => {
   const m = map.value;
   if (!m) return;
   setTimeout(() => {
+    if (following.value) return;
     if (routes.value.length) fitToResult();
     else if (slots.value.some((s) => s.point)) fitToPoints(true);
     else fitRegion();
@@ -785,10 +1011,16 @@ watch([routes, selectedId], pushRoutes, { deep: false });
  * otherwise be off screen: a route that moved to another valley is worth
  * showing, and is what the re-frame was for.
  */
-watch(answeredToken, () => setTimeout(fitToResult, 30));
+// Neither re-frame takes the view from someone the map is following: they are
+// the map's own decisions, and being followed was the person's.
+watch(answeredToken, () =>
+  setTimeout(() => {
+    if (!following.value) fitToResult();
+  }, 30),
+);
 watch(resultToken, () =>
   setTimeout(() => {
-    if (!routeIsVisible()) fitToResult();
+    if (!following.value && !routeIsVisible()) fitToResult();
   }, 30),
 );
 
@@ -806,6 +1038,35 @@ function routeIsVisible(): boolean {
   );
 }
 watch(hoverPoint, pushHover);
+watch(position, () => {
+  pushPosition();
+  followPosition();
+});
+watch(following, (on) => {
+  if (!on) {
+    clearTimeout(easeTimer);
+    easeTimer = undefined;
+    return;
+  }
+  // The button was just pressed: go there now, and let the zoom rule apply
+  // again to this first fix.
+  firstEase = true;
+  easeToPosition();
+});
+// The question card folds to a line and opens to a card over the top of the
+// map: either way the band the answer is framed into has moved. Only an
+// answer is worth re-framing for — a lone pin under a card being edited
+// would jump about with every change to the card.
+let topTimer: number | undefined;
+watch(topInset, () => {
+  clearTimeout(topTimer);
+  topTimer = window.setTimeout(() => {
+    if (map.value && routes.value.length && !following.value) fitToResult();
+  }, 80);
+});
+// The markers' labels are in the page's language. Rebuilding them is all a
+// switch needs: the slots watcher below would also re-frame the map.
+watch(locale, rebuildMarkers);
 watch(avoidedWays, pushAvoided, { deep: true });
 watch(
   () =>
@@ -858,15 +1119,14 @@ defineExpose({
       '--sheet-transition': sheetDragging ? 'none' : undefined,
     }"
   >
-    <div ref="host" class="absolute inset-0" style="background: var(--map-ground)" aria-label="Map of Trentino-Alto Adige" />
+    <div ref="host" class="absolute inset-0" style="background: var(--map-ground)" :aria-label="t('map.aria')" />
     <div v-if="mapUnavailable" class="absolute inset-0 z-10 grid place-items-center p-5" role="alert">
       <div class="card max-w-[380px] px-4 py-3.5 text-[13px] leading-snug" :style="{ boxShadow: 'var(--shadow-2)' }">
-        <p class="font-medium">The map cannot be drawn in this browser.</p>
+        <p class="font-medium">{{ t('map.noWebgl') }}</p>
+        <!-- The one monospaced word sits between the sentence's two halves. -->
         <p class="mt-1.5 text-muted">
-          It could not start WebGL, which the map needs. In Chrome, open
-          <span class="font-mono text-[12px]">chrome://gpu</span>: if WebGL is listed as unavailable, turn on
-          “Use graphics acceleration when available” under Settings → System, then quit and reopen the
-          browser. Routes still work without the map.
+          {{ t('map.noWebglBody').split('{url}')[0]
+          }}<span class="font-mono text-[12px]">chrome://gpu</span>{{ t('map.noWebglBody').split('{url}')[1] }}
         </p>
       </div>
     </div>
@@ -874,3 +1134,55 @@ defineExpose({
     <MapPopover v-if="popover" :state="popover" @close="closePopover" />
   </div>
 </template>
+
+<style>
+/* A pin picked up by a thumb rises off the map until it is put down. MapLibre
+   positions the pin with an inline transform, so the lift is on the drawing
+   inside it. */
+.marker-pin svg {
+  transition: transform 0.16s ease, filter 0.16s ease;
+}
+.marker-pin.is-lifted svg {
+  transform: translateY(-10px) scale(1.2);
+  filter: drop-shadow(0 8px 8px rgb(0 0 0 / 0.35));
+}
+/* The locate control's DOM is MapLibre's own, built outside the template, so
+   these cannot be scoped. Everything else about it — the group's border, its
+   radius, its shadow, the dark theme's icon — is already in theme.css. */
+.trp-locate button {
+  display: grid;
+  place-items: center;
+  width: 29px;
+  height: 29px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+.trp-locate button:hover {
+  color: var(--ink);
+  background: var(--surface-3);
+}
+.trp-locate.is-on button,
+.trp-locate.is-locating button,
+.trp-locate.is-following button {
+  color: var(--position);
+}
+/* Following is the one state that fills: the map is doing something. */
+.trp-locate.is-following button,
+.trp-locate.is-following button:hover {
+  background: color-mix(in srgb, var(--position) 13%, var(--surface));
+}
+.trp-locate.is-locating button {
+  animation: trp-locate-breathe 1.2s ease-in-out infinite;
+}
+@keyframes trp-locate-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+</style>

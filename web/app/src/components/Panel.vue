@@ -8,6 +8,7 @@ import GradeSelect from './GradeSelect.vue';
 import ResultsBlock from './ResultsBlock.vue';
 import HistoryView from './HistoryView.vue';
 import FavouritesView from './FavouritesView.vue';
+import OfflineView from './OfflineView.vue';
 import SettingsView from './SettingsView.vue';
 import AboutView from './AboutView.vue';
 import Toggle from './Toggle.vue';
@@ -24,8 +25,10 @@ import {
 import { isDark, useTheme } from '../composables/useTheme';
 import { appConfig } from '../lib/config';
 import { hasHover, isCompact, panelHidden } from '../composables/useMedia';
+import { savedViewToken } from '../composables/useOffline';
+import { t } from '../i18n';
 
-type View = 'plan' | 'history' | 'favourites' | 'settings' | 'about';
+type View = 'plan' | 'history' | 'favourites' | 'saved' | 'settings' | 'about';
 const view = ref<View>('plan');
 const { toggle } = useTheme();
 
@@ -35,13 +38,7 @@ const three = computed({
   set: (v: boolean) => (alternatives.value = v ? 3 : 1),
 });
 
-const TITLES: Record<View, string> = {
-  plan: 'Ometto',
-  history: 'Recent routes',
-  favourites: 'Favourites',
-  settings: 'Settings',
-  about: 'About',
-};
+const title = computed(() => t(`panel.title.${view.value}`));
 
 /** One date for the footer: how old the map data is, which is the age of the
     OpenStreetMap extract — not the build, which says nothing about the roads
@@ -56,6 +53,10 @@ const dataDate = computed(() => {
 function go(v: View) {
   view.value = view.value === v ? 'plan' : v;
 }
+
+// A card that says a route is already saved offers to show the list; on a
+// desktop that list is a section of this panel.
+watch(savedViewToken, () => (view.value = 'saved'));
 
 /**
  * On a phone the answer lands below the question, outside the sheet's window.
@@ -82,7 +83,7 @@ watch(answeredToken, async () => {
       <button
         v-if="view !== 'plan'"
         class="btn-quiet -ml-1.5 mt-0.5 p-1.5"
-        aria-label="Back to the planner"
+        :aria-label="t('panel.back')"
         @click="view = 'plan'"
       >
         <Icon name="arrowLeft" :size="17" />
@@ -93,19 +94,19 @@ watch(answeredToken, async () => {
 
       <div class="min-w-0 flex-1">
         <h1 class="truncate text-[15px] font-medium leading-tight tracking-[-0.005em]">
-          {{ TITLES[view] }}
+          {{ title }}
         </h1>
         <p v-if="view === 'plan'" class="truncate text-[11.5px] leading-tight text-faint">
-          Trentino-Alto Adige
+          {{ t('meta.region') }}
         </p>
       </div>
 
-      <nav class="flex items-center gap-0.5" aria-label="Sections">
+      <nav class="flex items-center gap-0.5" :aria-label="t('panel.sections')">
         <button
           class="nav-btn"
           :class="view === 'history' ? 'is-on' : ''"
-          aria-label="Recent routes"
-          title="Recent routes"
+          :aria-label="t('panel.title.history')"
+          :title="t('panel.title.history')"
           @click="go('history')"
         >
           <Icon name="history" :size="16" />
@@ -113,25 +114,34 @@ watch(answeredToken, async () => {
         <button
           class="nav-btn"
           :class="view === 'favourites' ? 'is-on' : ''"
-          aria-label="Favourites"
-          title="Favourites"
+          :aria-label="t('panel.title.favourites')"
+          :title="t('panel.title.favourites')"
           @click="go('favourites')"
         >
           <Icon name="star" :size="16" />
         </button>
         <button
           class="nav-btn"
+          :class="view === 'saved' ? 'is-on' : ''"
+          :aria-label="t('panel.title.saved')"
+          :title="t('panel.title.saved')"
+          @click="go('saved')"
+        >
+          <Icon name="download" :size="16" />
+        </button>
+        <button
+          class="nav-btn"
           :class="view === 'settings' ? 'is-on' : ''"
-          aria-label="Settings"
-          title="Settings"
+          :aria-label="t('panel.title.settings')"
+          :title="t('panel.title.settings')"
           @click="go('settings')"
         >
           <Icon name="settings" :size="16" />
         </button>
         <button
           class="nav-btn"
-          :aria-label="isDark ? 'Switch to the light theme' : 'Switch to the dark theme'"
-          :title="isDark ? 'Light theme' : 'Dark theme'"
+          :aria-label="isDark ? t('panel.switchToLight') : t('panel.switchToDark')"
+          :title="isDark ? t('panel.lightTheme') : t('panel.darkTheme')"
           @click="toggle"
         >
           <Icon :name="isDark ? 'sun' : 'moon'" :size="16" />
@@ -142,8 +152,8 @@ watch(answeredToken, async () => {
           <span class="mx-0.5 h-4 w-px" :style="{ background: 'var(--line)' }" aria-hidden="true" />
           <button
             class="nav-btn"
-            aria-label="Hide the panel"
-            title="Hide the panel (Esc)"
+            :aria-label="t('panel.hide')"
+            :title="t('panel.hideTitle')"
             @click="panelHidden = true"
           >
             <Icon name="panelHide" :size="16" />
@@ -163,11 +173,11 @@ watch(answeredToken, async () => {
       <template v-if="view === 'plan'">
         <SearchBlock />
 
-        <h2 class="label mt-5 mb-2">Mode</h2>
+        <h2 class="label mt-5 mb-2">{{ t('panel.mode') }}</h2>
         <ModeSelect />
 
         <template v-if="walks">
-          <h2 class="label mt-4 mb-2">Trail grade</h2>
+          <h2 class="label mt-4 mb-2">{{ t('panel.trailGrade') }}</h2>
           <GradeSelect />
         </template>
 
@@ -175,23 +185,23 @@ watch(answeredToken, async () => {
           <Toggle
             v-if="walks"
             v-model="lifts"
-            label="Use lifts"
-            hint="Cable cars and chair lifts, where they run."
+            :label="t('panel.useLifts')"
+            :hint="t('panel.useLiftsHint')"
           />
-          <Toggle v-model="three" label="Show 3 routes" hint="Compare alternatives side by side." />
+          <Toggle v-model="three" :label="t('panel.showThree')" :hint="t('panel.showThreeHint')" />
         </div>
 
         <button
           class="btn-primary mt-3 flex w-full items-center justify-center gap-2 px-4 py-3 text-[14px]"
-          :aria-label="status === 'loading' ? 'Computing the route' : 'Compute route'"
+          :aria-label="status === 'loading' ? t('panel.computingAria') : t('panel.compute')"
           :disabled="!canCompute || busy"
           @click="compute()"
         >
-          <span v-if="status === 'loading'">Computing…</span>
-          <span v-else>Compute route</span>
+          <span v-if="status === 'loading'">{{ t('panel.computing') }}</span>
+          <span v-else>{{ t('panel.compute') }}</span>
         </button>
         <p v-if="!canCompute" class="mt-1.5 text-center text-[11.5px] text-faint">
-          Set a start and a destination — or {{ hasHover ? 'click' : 'tap' }} the map.
+          {{ hasHover ? t('panel.needPointsClick') : t('panel.needPointsTap') }}
         </p>
 
         <div ref="resultsEl" class="mt-5 scroll-mt-2">
@@ -201,6 +211,7 @@ watch(answeredToken, async () => {
 
       <HistoryView v-else-if="view === 'history'" @done="view = 'plan'" />
       <FavouritesView v-else-if="view === 'favourites'" @done="view = 'plan'" />
+      <OfflineView v-else-if="view === 'saved'" @done="view = 'plan'" />
       <AboutView v-else-if="view === 'about'" />
       <SettingsView v-else @about="view = 'about'" />
     </div>
@@ -213,11 +224,11 @@ watch(answeredToken, async () => {
     >
       <button
         class="w-full truncate text-left text-[11px] text-faint transition-colors hover:text-muted"
-        :aria-label="'About Ometto, its data and its limits'"
-        title="What this is, where the data comes from, and what it cannot tell you"
+        :aria-label="t('panel.aboutAria')"
+        :title="t('panel.aboutTitle')"
         @click="view = 'about'"
       >
-        Planning aid, not a guide<template v-if="dataDate"> · data {{ dataDate }}</template>
+        {{ dataDate ? t('panel.footerData', { date: dataDate }) : t('panel.footer') }}
       </button>
     </footer>
   </div>

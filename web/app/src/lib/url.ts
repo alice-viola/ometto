@@ -1,6 +1,7 @@
 import type { AvoidPoint, Grade, Mode, Waypoint } from './types';
 import { round6 } from './geo';
 import { shareOrigin } from './config';
+import { MAX_AVOIDS, MAX_POINTS, MAX_SEQUENCE } from './limits';
 
 const MODES: Mode[] = ['car', 'bike', 'hike', 'car+hike', 'bike+hike'];
 const GRADES: Grade[] = ['T', 'E', 'EE', 'EEA', 'A'];
@@ -41,6 +42,25 @@ export function encodeQuery(q: SharedQuery): string {
   return `?${parts.join('&')}`;
 }
 
+/**
+ * A link holds what the planner does: six places, twelve entries with the
+ * vias. Counting the vias as places cut a ten-point walk at its sixth entry and
+ * made that the destination. A link the page wrote always fits; one edited
+ * past the limits loses entries before its destination, not the destination.
+ */
+function fit(points: Waypoint[]): Waypoint[] {
+  const last = points[points.length - 1];
+  const out: Waypoint[] = [];
+  let places = last.via ? 0 : 1;
+  for (const p of points.slice(0, -1)) {
+    if (out.length + 1 >= MAX_SEQUENCE) break;
+    if (!p.via && places++ >= MAX_POINTS) break;
+    out.push(p);
+  }
+  out.push(last);
+  return out;
+}
+
 export function decodeQuery(search: string): SharedQuery | null {
   let u: URLSearchParams;
   try {
@@ -66,7 +86,7 @@ export function decodeQuery(search: string): SharedQuery | null {
   const m = u.get('m') as Mode | null;
   const g = u.get('g') as Grade | null;
   return {
-    points: points.slice(0, 6),
+    points: fit(points),
     mode: m && MODES.includes(m) ? m : 'car',
     grade: g && GRADES.includes(g) ? g : 'E',
     alternatives: u.get('a') === '3' ? 3 : 1,
@@ -76,7 +96,7 @@ export function decodeQuery(search: string): SharedQuery | null {
       .map((chunk) => chunk.split(','))
       .map(([a, b]) => ({ lat: Number(a), lon: Number(b) }))
       .filter((a) => isFinite(a.lat) && isFinite(a.lon) && Math.abs(a.lat) <= 90)
-      .slice(0, 20),
+      .slice(0, MAX_AVOIDS),
   };
 }
 

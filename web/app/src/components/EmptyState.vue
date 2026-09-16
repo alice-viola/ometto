@@ -2,9 +2,10 @@
 import { computed } from 'vue';
 import { alternatives, applyQuery, slots } from '../composables/usePlanner';
 import type { Grade, Mode } from '../lib/types';
+import { t, type Key } from '../i18n';
 
 interface Example {
-  label: string;
+  label: Key;
   points: { lat: number; lon: number; name: string }[];
   mode: Mode;
   grade: Grade;
@@ -25,7 +26,7 @@ interface Example {
  */
 const EXAMPLES: Example[] = [
   {
-    label: 'Trento → Monte Stivo · car + hike',
+    label: 'empty.example',
     points: [
       { lat: 46.066423, lon: 11.12576, name: 'Trento' },
       { lat: 45.920127, lon: 10.963691, name: 'Monte Stivo' },
@@ -58,12 +59,11 @@ function run(e: Example) {
 <template>
   <div class="pt-1">
     <p class="text-[13.5px] leading-relaxed text-muted">
-      Pick two points and see how long it takes — by car, by bike or on foot, with the climb and the
-      trail grade along the way.
+      {{ t('empty.intro') }}
     </p>
 
     <div v-if="untouched" class="mt-4">
-      <h3 class="label mb-2">Try an example</h3>
+      <h3 class="label mb-2">{{ t('empty.tryExample') }}</h3>
       <div class="flex flex-wrap gap-1.5">
         <button
           v-for="e in EXAMPLES"
@@ -72,7 +72,7 @@ function run(e: Example) {
           class="rounded-full border border-line bg-surface-2 px-2.5 py-1.5 text-[12.5px] font-medium whitespace-nowrap transition-colors hover:border-line-strong hover:bg-surface max-[899px]:min-h-11 max-[899px]:px-3.5"
           @click="run(e)"
         >
-          {{ e.label }}
+          {{ t(e.label) }}
         </button>
       </div>
     </div>

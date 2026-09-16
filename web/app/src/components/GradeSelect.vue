@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import Icon from './Icon.vue';
-import { GRADES, GRADE_HINTS, GRADE_NAMES } from '../lib/format';
+import { GRADES, gradeDesc, gradeHint, gradeName } from '../lib/format';
+import { t } from '../i18n';
 import type { Grade } from '../lib/types';
 import { grade } from '../composables/usePlanner';
 
@@ -20,16 +21,16 @@ function onKey(e: KeyboardEvent, g: Grade) {
 
 <template>
   <div>
-    <div role="radiogroup" aria-label="Trail grade for the walking part" class="grid grid-cols-5 gap-1.5">
+    <div role="radiogroup" :aria-label="t('top.gradeGroup')" class="grid grid-cols-5 gap-1.5">
       <button
         v-for="g in GRADES"
         :id="`grade-${g}`"
         :key="g"
         role="radio"
-        :aria-label="`${g} — ${GRADE_NAMES[g]}`"
+        :aria-label="`${g} — ${gradeName(g)}`"
         :aria-checked="grade === g"
         :tabindex="grade === g ? 0 : -1"
-        :title="GRADE_HINTS[g]"
+        :title="gradeHint(g)"
         class="grade-chip"
         :class="[grade === g ? 'is-on' : '', g === 'A' ? 'is-alpine' : '']"
         @click="grade = g"
@@ -49,8 +50,8 @@ function onKey(e: KeyboardEvent, g: Grade) {
       </button>
     </div>
     <p class="mt-1.5 min-h-[30px] text-[11.5px] leading-[1.35] text-muted">
-      <span class="font-medium text-ink">{{ GRADE_NAMES[shown] }}</span>
-      — {{ GRADE_HINTS[shown].split('—')[1].trim() }}
+      <span class="font-medium text-ink">{{ gradeName(shown) }}</span>
+      — {{ gradeDesc(shown) }}
     </p>
   </div>
 </template>

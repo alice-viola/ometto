@@ -34,3 +34,12 @@ watch(panelHidden, (v) => writeLocalRaw('panel.hidden', v ? '1' : '0'));
 export const topInset = ref(0);
 /** Bumped by anything that wants the map to frame the answer again. */
 export const frameRequest = ref(0);
+
+export type SheetStop = 'closed' | 'peek' | 'rest' | 'top';
+/** The stop the phone's sheet is resting on; null while a finger holds it. */
+export const sheetStop = ref<SheetStop | null>(null);
+/**
+ * A stop something else wants the sheet at — the question card, when it opens
+ * over an answer that was filling the screen. The sheet takes it and clears it.
+ */
+export const sheetRequest = ref<SheetStop | null>(null);

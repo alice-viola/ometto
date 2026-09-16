@@ -1,5 +1,6 @@
-import { computed, nextTick, ref, watch } from 'vue';
+import { computed, nextTick, ref, shallowRef, watch } from 'vue';
 import { api, ApiError } from '../lib/api';
+import { t } from '../i18n';
 import type {
   AvoidPoint,
   AvoidedWay,
@@ -11,6 +12,7 @@ import type {
   Waypoint,
 } from '../lib/types';
 import { decodeQuery, replaceUrl, type SharedQuery } from '../lib/url';
+import { MAX_AVOIDS, MAX_POINTS, MAX_SEQUENCE } from '../lib/limits';
 import { cumulative, nearestOnLine, round6, type Coord } from '../lib/geo';
 import { readLocalRaw, writeLocalRaw } from '../lib/storage';
 import { isCompact } from './useMedia';
@@ -26,8 +28,11 @@ let seq = 0;
 const newSlot = (point: Waypoint | null = null): Slot => ({ key: `s${++seq}`, point });
 
 export const slots = ref<Slot[]>([newSlot(), newSlot()]);
-export const mode = ref<Mode>('car');
-export const grade = ref<Grade>('E');
+// Car + hike is what the region is for: drive to the foot of it, walk to the top.
+export const mode = ref<Mode>('car+hike');
+// Alpine by default: the mountain is the point of the region, and a summit
+// refused at E was the first thing most people saw.
+export const grade = ref<Grade>('A');
 /**
  * One answer on a desktop, where the panel invites comparing on request; the
  * three of them on a phone, where the choice is the point of the sheet and
@@ -44,7 +49,9 @@ watch(lifts, (v) => writeLocalRaw('lifts', v ? '1' : '0'));
 export const routes = ref<RouteAlternative[]>([]);
 export const selectedId = ref<string | null>(null);
 export const status = ref<Status>('idle');
-export const errorText = ref('');
+/** Said when it is read, so a language switch reaches an error already on screen. */
+const errorSay = shallowRef<(() => string) | null>(null);
+export const errorText = computed(() => errorSay.value?.() ?? '');
 export const noRouteReason = ref('');
 /** The grade this exact question would need, when the service knows one. */
 export const neededGrade = ref<Grade | null>(null);
@@ -69,6 +76,18 @@ export const avoids = ref<AvoidPoint[]>([]);
 export const avoidedWays = ref<AvoidedWay[]>([]);
 /** The service answered from a reduced state; the answer is still an answer. */
 export const degraded = ref(false);
+/**
+ * When the answer on screen was saved, if it came out of this browser's
+ * offline store because the service could not be reached. Null the rest of
+ * the time, which is nearly always.
+ */
+export const savedCopyAt = ref<number | null>(null);
+/**
+ * The whole answer as it arrived, which is more than the alternatives on
+ * screen: what the service made of each point, what it had to leave out. The
+ * offline store keeps this one, so a saved route reopens as it first landed.
+ */
+export const lastResponse = shallowRef<RouteResponse | null>(null);
 /** Bumped after every successful result so the map knows to frame it. */
 export const resultToken = ref(0);
 /** Bumped after every successful result so the history list knows to refresh. */
@@ -104,10 +123,7 @@ export const selected = computed<RouteAlternative | null>(
 );
 export const busy = computed(() => status.value === 'loading' || status.value === 'recomputing');
 
-export const MAX_POINTS = 6;
-/** The whole sequence, vias included. */
-export const MAX_SEQUENCE = 12;
-export const MAX_AVOIDS = 20;
+export { MAX_AVOIDS, MAX_POINTS, MAX_SEQUENCE };
 
 export const isCombinedMode = computed(() => mode.value.includes('+'));
 
@@ -182,11 +198,12 @@ export async function compute(silent = false): Promise<void> {
   clearTimeout(debounceTimer);
 
   status.value = silent && hasResult.value ? 'recomputing' : 'loading';
-  errorText.value = '';
+  errorSay.value = null;
   noRouteReason.value = '';
   neededGrade.value = null;
   pointNotes.value = {};
   degraded.value = false;
+  savedCopyAt.value = null;
 
   const request = {
     // The name rides along with the coordinate: the service stores it with the
@@ -212,6 +229,8 @@ export async function compute(silent = false): Promise<void> {
     if (ctrl.signal.aborted) return;
     avoidedWays.value = res.avoided ?? [];
     degraded.value = res.degraded === true;
+    savedCopyAt.value = res.fromSaved?.at ?? null;
+    lastResponse.value = res;
     readSnapped(res.snapped, res.reason);
     if (!res.routes?.length) {
       routes.value = [];
@@ -235,7 +254,7 @@ export async function compute(silent = false): Promise<void> {
     if ((e as Error)?.name === 'AbortError') return;
     routes.value = [];
     selectedId.value = null;
-    errorText.value = e instanceof ApiError ? e.human : 'Something went wrong. Try again.';
+    errorSay.value = () => (e instanceof ApiError ? e.human : t('error.somethingWrong'));
     status.value = 'error';
     if (!silent) answeredToken.value++;
   } finally {
@@ -505,11 +524,13 @@ export function clearResult(): void {
   routes.value = [];
   selectedId.value = null;
   status.value = 'idle';
-  errorText.value = '';
+  errorSay.value = null;
   noRouteReason.value = '';
   neededGrade.value = null;
   pointNotes.value = {};
   degraded.value = false;
+  savedCopyAt.value = null;
+  lastResponse.value = null;
 }
 
 export function clearAll(): void {

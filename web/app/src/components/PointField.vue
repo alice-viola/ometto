@@ -2,11 +2,14 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import { api } from '../lib/api';
-import { KIND_LABELS, fmtElevation } from '../lib/format';
+import { fmtElevation, fmtOffset, kindLabel } from '../lib/format';
 import type { GeocodeResult, Waypoint } from '../lib/types';
 import { favourites } from '../composables/useFavourites';
 import type { PointNote } from '../composables/usePlanner';
+import { online } from '../composables/useOffline';
 import { toast } from '../composables/useToast';
+import { locale, t } from '../i18n';
+import { detailText, wayName } from '../i18n/service';
 
 const props = defineProps<{
   modelValue: Waypoint | null;
@@ -27,7 +30,7 @@ const emit = defineEmits<{
   dismissNote: [];
 }>();
 
-const text = ref(props.modelValue?.name ?? '');
+const text = ref(wayName(props.modelValue?.name));
 const open = ref(false);
 const results = ref<GeocodeResult[]>([]);
 const active = ref(-1);
@@ -67,33 +70,31 @@ onMounted(() => document.addEventListener('pointerdown', onDocumentPointerDown, 
 let timer: number | undefined;
 let ctrl: AbortController | null = null;
 
-watch(
-  () => props.modelValue,
-  (v) => {
-    if (document.activeElement !== input.value) text.value = v?.name ?? '';
-  },
-);
+// The field shows the name in the page's language, so a switch of language
+// is a reason to say it again — unless the person is typing in it.
+watch([() => props.modelValue, locale], ([v]) => {
+  if (document.activeElement !== input.value) text.value = wayName(v?.name);
+});
 
 const placeholder = computed(() =>
   props.role === 'start'
-    ? 'From'
+    ? t('point.from')
     : props.role === 'destination'
-      ? 'To'
+      ? t('point.to')
       : props.role === 'parking'
-        ? 'Where you park'
-        : `Stop ${props.stopNumber ?? ''}`.trim(),
+        ? t('point.park')
+        : t('point.stop', { n: props.stopNumber ?? '' }).trim(),
 );
 
 /** A whole sentence, so the two buttons under it have something to answer. */
 const movedText = computed(() => {
   const n = props.note;
   if (!n) return '';
-  const d = n.metres >= 1000 ? `${(n.metres / 1000).toFixed(1)} km` : `${Math.round(n.metres)} m`;
-  if (n.kind === 'far') return `The nearest road or trail is ${d} away.`;
-  const verb =
-    props.role === 'start' ? 'starts' : props.role === 'destination' ? 'ends' : 'passes here';
-  const where = n.name ? ` on ${n.name}` : '';
-  return `The route ${verb} ${d} away${where}.`;
+  const d = fmtOffset(n.metres);
+  if (n.kind === 'far') return t('point.far', { d });
+  const key = props.role === 'start' ? 'point.starts' : props.role === 'destination' ? 'point.ends' : 'point.passes';
+  const where = n.name ? t('point.onWay', { name: wayName(n.name) }) : '';
+  return t(key, { d, where });
 });
 
 const suggestions = computed(() => {
@@ -102,7 +103,7 @@ const suggestions = computed(() => {
     id: `fav-${f.id}`,
     name: f.name,
     kind: (f.kind as GeocodeResult['kind']) ?? 'place',
-    locality: 'Favourite',
+    locality: t('point.favourite'),
     lat: f.lat,
     lon: f.lon,
   }));
@@ -110,6 +111,10 @@ const suggestions = computed(() => {
 
 const showLocate = computed(() => text.value.trim().length < 2);
 const optionCount = computed(() => suggestions.value.length + (showLocate.value ? 1 : 0));
+/** Typed something, got nothing, and there is no network: say which it is. */
+const offlineHint = computed(
+  () => !online.value && !loading.value && !suggestions.value.length && text.value.trim().length >= 2,
+);
 
 function search(q: string) {
   clearTimeout(timer);
@@ -140,7 +145,7 @@ function onInput() {
 }
 
 function pick(r: GeocodeResult) {
-  text.value = r.name;
+  text.value = wayName(r.name);
   hideListNow();
   emit('update:modelValue', { lat: r.lat, lon: r.lon, name: r.name, kind: r.kind });
 }
@@ -154,27 +159,27 @@ function clear() {
 
 function useMyLocation() {
   if (!navigator.geolocation) {
-    toast('This browser cannot share a location.');
+    toast(t('point.noGeolocation'));
     return;
   }
   locating.value = true;
   navigator.geolocation.getCurrentPosition(
     async (pos) => {
       const { latitude: lat, longitude: lon } = pos.coords;
-      let name = 'My location';
+      let name = t('point.myLocation');
       try {
         name = (await api.reverse(lat, lon)).name || name;
       } catch {
         /* the coordinate is enough */
       }
-      text.value = name;
+      text.value = wayName(name);
       hideListNow();
       locating.value = false;
       emit('update:modelValue', { lat, lon, name });
     },
     () => {
       locating.value = false;
-      toast('Location is not available.');
+      toast(t('point.locationUnavailable'));
     },
     { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 },
   );
@@ -224,7 +229,7 @@ function onBlur() {
   // always means the person left: close, and put back what this field holds.
   hideListNow();
   if (!text.value.trim()) emit('update:modelValue', null);
-  else if (props.modelValue) text.value = props.modelValue.name ?? text.value;
+  else if (props.modelValue) text.value = props.modelValue.name != null ? wayName(props.modelValue.name) : text.value;
 }
 
 onBeforeUnmount(() => {
@@ -289,7 +294,7 @@ onBeforeUnmount(() => {
       <button
         v-if="text"
         class="btn-quiet p-1.5"
-        :aria-label="`Clear ${placeholder}`"
+        :aria-label="t('point.clearField', { label: placeholder })"
         @mousedown.prevent
         @click="clear"
       >
@@ -298,7 +303,7 @@ onBeforeUnmount(() => {
       <button
         v-if="canMoveUp"
         class="btn-quiet p-1.5"
-        aria-label="Move this stop earlier"
+        :aria-label="t('point.moveEarlier')"
         @mousedown.prevent
         @click="emit('move', -1)"
       >
@@ -307,7 +312,7 @@ onBeforeUnmount(() => {
       <button
         v-if="canMoveDown"
         class="btn-quiet p-1.5"
-        aria-label="Move this stop later"
+        :aria-label="t('point.moveLater')"
         @mousedown.prevent
         @click="emit('move', 1)"
       >
@@ -316,7 +321,7 @@ onBeforeUnmount(() => {
       <button
         v-if="canRemove"
         class="btn-quiet p-1.5"
-        aria-label="Remove this stop"
+        :aria-label="t('point.remove')"
         @mousedown.prevent
         @click="emit('remove')"
       >
@@ -335,19 +340,19 @@ onBeforeUnmount(() => {
       <template v-if="note.kind === 'moved'">
         <button
           class="note-action"
-          title="Put the marker where the route actually meets the network"
-          aria-label="Move the marker to where the route meets the network"
+          :title="t('point.moveMarkerTitle')"
+          :aria-label="t('point.moveMarkerAria')"
           @click="emit('acceptMove')"
         >
-          Move marker
+          {{ t('point.moveMarker') }}
         </button>
         <button
           class="note-action"
-          title="Leave the marker where you put it"
-          aria-label="Leave the marker where you put it"
+          :title="t('point.keepTitle')"
+          :aria-label="t('point.keepTitle')"
           @click="emit('dismissNote')"
         >
-          Keep
+          {{ t('point.keep') }}
         </button>
       </template>
     </p>
@@ -360,14 +365,15 @@ onBeforeUnmount(() => {
       a click always lands where it was aimed.
     -->
     <ul
-      v-show="open && (optionCount > 0 || loading)"
+      v-show="open && (optionCount > 0 || loading || offlineHint)"
       ref="listEl"
       :id="listId"
       role="listbox"
       class="card scroll-quiet mt-1 max-h-[260px] overflow-y-auto py-1"
       style="box-shadow: var(--shadow-1)"
     >
-      <li v-if="loading && !suggestions.length" class="px-3 py-2 text-[13px] text-muted">Searching…</li>
+      <li v-if="loading && !suggestions.length" class="px-3 py-2 text-[13px] text-muted">{{ t('point.searching') }}</li>
+      <li v-else-if="offlineHint" class="px-3 py-2 text-[13px] text-muted">{{ t('offline.searchNeedsNetwork') }}</li>
       <li
         v-for="(r, i) in suggestions"
         :id="`${listId}-${i}`"
@@ -385,11 +391,11 @@ onBeforeUnmount(() => {
             :size="14"
             class="relative top-0.5 text-muted"
           />
-          <span class="min-w-0 flex-1 truncate text-[13.5px]">{{ r.name }}</span>
+          <span class="min-w-0 flex-1 truncate text-[13.5px]">{{ wayName(r.name) }}</span>
           <span v-if="r.ele" class="text-[12px] text-muted">{{ fmtElevation(r.ele) }}</span>
         </div>
         <div class="ml-[22px] truncate text-[11.5px] text-faint">
-          {{ KIND_LABELS[r.kind] ?? r.kind }}<template v-if="r.detail"> · {{ r.detail }}</template><template v-if="r.locality"> · {{ r.locality }}</template>
+          {{ kindLabel(r.kind) }}<template v-if="r.detail"> · {{ detailText(r.detail) }}</template><template v-if="r.locality"> · {{ r.locality }}</template>
         </div>
       </li>
       <li
@@ -404,7 +410,7 @@ onBeforeUnmount(() => {
       >
         <div class="flex items-center gap-2 text-[13px]">
           <Icon name="locate" :size="14" class="text-muted" />
-          {{ locating ? 'Finding you…' : 'Use my location' }}
+          {{ locating ? t('point.findingYou') : t('point.useMyLocation') }}
         </div>
       </li>
     </ul>

@@ -24,6 +24,8 @@ import {
   swapEnds,
   viaCount,
 } from '../composables/usePlanner';
+import { t } from '../i18n';
+import { wayName } from '../i18n/service';
 
 /** Only the places the person named; vias are route shape, not destinations. */
 const places = computed(() => placeIndices.value.map((i) => ({ index: i, slot: slots.value[i] })));
@@ -38,12 +40,12 @@ function roleOf(i: number, at: number): 'start' | 'stop' | 'destination' | 'park
 
 /** A way with no name still has to be nameable in a chip. */
 function wayLabel(w: { name?: string; class?: string }): string {
-  return w.name || w.class?.replace(/_/g, ' ') || 'that way';
+  return wayName(w.name) || w.class?.replace(/_/g, ' ') || t('search.thatWay');
 }
 </script>
 
 <template>
-  <section aria-label="Points">
+  <section :aria-label="t('search.points')">
     <div class="grid gap-1.5">
       <PointField
         v-for="(p, at) in places"
@@ -67,25 +69,25 @@ function wayLabel(w: { name?: string; class?: string }): string {
     <!-- Shape the person dragged into the route, summarised rather than listed. -->
     <p v-if="viaCount" class="mt-1.5 flex items-center gap-2 pl-0.5 text-[11.5px] text-muted">
       <span class="inline-block size-2 rounded-full" :style="{ background: 'var(--accent)' }" aria-hidden="true" />
-      <span>Via {{ viaCount }} {{ viaCount === 1 ? 'point' : 'points' }}</span>
-      <button class="note-action" @click="clearVias">clear</button>
+      <span>{{ t('search.via', { n: viaCount }) }}</span>
+      <button class="note-action" @click="clearVias">{{ t('search.clear') }}</button>
     </p>
 
     <div v-if="avoidedWays.length" class="mt-1.5 flex flex-wrap items-center gap-1.5">
-      <span class="text-[11.5px] text-muted">Avoiding:</span>
+      <span class="text-[11.5px] text-muted">{{ t('search.avoiding') }}</span>
       <button
         v-for="w in avoidedWays"
         :key="w.id"
         class="avoid-chip"
-        :aria-label="`Stop avoiding ${wayLabel(w)}`"
-        :title="`Stop avoiding ${wayLabel(w)}`"
+        :aria-label="t('search.stopAvoiding', { name: wayLabel(w) })"
+        :title="t('search.stopAvoiding', { name: wayLabel(w) })"
         @click="stopAvoiding(w)"
       >
         <span class="max-w-[150px] truncate">{{ wayLabel(w) }}</span>
         <Icon name="x" :size="11" />
       </button>
       <button v-if="avoidedWays.length > 1" class="note-action text-[11.5px]" @click="clearAvoids">
-        clear all
+        {{ t('search.clearAll') }}
       </button>
     </div>
 
@@ -95,21 +97,21 @@ function wayLabel(w: { name?: string; class?: string }): string {
         :disabled="!canAdd"
         @click="addStop"
       >
-        <Icon name="plus" :size="14" /> Add stop
+        <Icon name="plus" :size="14" /> {{ t('search.addStop') }}
       </button>
       <span class="flex-1" />
       <button
         class="btn-quiet p-1.5"
-        title="Swap start and destination"
-        aria-label="Swap start and destination"
+        :title="t('search.swap')"
+        :aria-label="t('search.swap')"
         @click="swapEnds"
       >
         <Icon name="swap" :size="15" />
       </button>
       <button
         class="btn-quiet p-1.5"
-        title="Clear the points, the vias and the avoided ways"
-        aria-label="Clear the points, the vias and the avoided ways"
+        :title="t('search.clearPoints')"
+        :aria-label="t('search.clearPoints')"
         :disabled="!anyFilled"
         @click="clearAll"
       >
@@ -118,11 +120,11 @@ function wayLabel(w: { name?: string; class?: string }): string {
     </div>
 
     <p
-      v-if="isCombinedMode && places.length < 3"
+      v-if="isCombinedMode && places.length < 3 && anyFilled"
       class="mt-1 pl-0.5 text-[11.5px] leading-snug text-muted"
     >
-      Add a stop where you park: you travel to it, and walk from there.
-      <button class="note-action" @click="addStop">Add one</button>
+      {{ t('search.parkHint') }}
+      <button class="note-action" @click="addStop">{{ t('search.addOne') }}</button>
     </p>
   </section>
 </template>

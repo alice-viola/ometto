@@ -21,6 +21,8 @@ export interface Tokens {
   hike: string;
   lift: string;
   dest: string;
+  /** The live position dot, which is neither a mode nor the accent. */
+  position: string;
   gradeT: string;
   gradeE: string;
   gradeEE: string;
@@ -44,6 +46,7 @@ const VARS: Record<keyof Tokens, string> = {
   hike: '--hike',
   lift: '--lift',
   dest: '--dest',
+  position: '--position',
   gradeT: '--grade-t',
   gradeE: '--grade-e',
   gradeEE: '--grade-ee',

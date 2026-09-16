@@ -12,6 +12,9 @@ import {
   stopAvoiding,
   viaCount,
 } from '../../composables/usePlanner';
+import { fmtOffset } from '../../lib/format';
+import { t } from '../../i18n';
+import { wayName } from '../../i18n/service';
 
 /**
  * What the service had to say about the question before it answered — a
@@ -23,18 +26,16 @@ const notes = computed(() =>
   Object.entries(pointNotes.value).map(([k, n]) => {
     const i = Number(k);
     const last = slots.value.length - 1;
-    const role = i === 0 ? 'starts' : i === last ? 'ends' : 'passes here';
-    const d = n.metres >= 1000 ? `${(n.metres / 1000).toFixed(1)} km` : `${Math.round(n.metres)} m`;
-    const text =
-      n.kind === 'far'
-        ? `The nearest road or trail is ${d} away.`
-        : `The route ${role} ${d} away${n.name ? ` on ${n.name}` : ''}.`;
+    const key = i === 0 ? 'point.starts' : i === last ? 'point.ends' : 'point.passes';
+    const d = fmtOffset(n.metres);
+    const where = n.name ? t('point.onWay', { name: wayName(n.name) }) : '';
+    const text = n.kind === 'far' ? t('point.far', { d }) : t(key, { d, where });
     return { index: i, kind: n.kind, text };
   }),
 );
 
 function wayLabel(w: { name?: string; class?: string }): string {
-  return w.name || w.class?.replace(/_/g, ' ') || 'that way';
+  return wayName(w.name) || w.class?.replace(/_/g, ' ') || t('search.thatWay');
 }
 </script>
 
@@ -48,15 +49,15 @@ function wayLabel(w: { name?: string; class?: string }): string {
     >
       <p>{{ n.text }}</p>
       <div v-if="n.kind === 'moved'" class="mt-2 flex gap-2">
-        <button type="button" class="note-btn" @click="acceptMove(n.index)">Move marker</button>
-        <button type="button" class="note-btn" @click="dismissNote(n.index)">Keep</button>
+        <button type="button" class="note-btn" @click="acceptMove(n.index)">{{ t('point.moveMarker') }}</button>
+        <button type="button" class="note-btn" @click="dismissNote(n.index)">{{ t('point.keep') }}</button>
       </div>
     </div>
 
     <div v-if="viaCount || avoidedWays.length" class="flex flex-wrap items-center gap-1.5">
       <button v-if="viaCount" type="button" class="chip" @click="clearVias">
         <span class="inline-block size-2 rounded-full" :style="{ background: 'var(--accent)' }" aria-hidden="true" />
-        Via {{ viaCount }} {{ viaCount === 1 ? 'point' : 'points' }}
+        {{ t('search.via', { n: viaCount }) }}
         <Icon name="x" :size="12" />
       </button>
       <button
@@ -64,13 +65,13 @@ function wayLabel(w: { name?: string; class?: string }): string {
         :key="w.id"
         type="button"
         class="chip chip-avoid"
-        :aria-label="`Stop avoiding ${wayLabel(w)}`"
+        :aria-label="t('search.stopAvoiding', { name: wayLabel(w) })"
         @click="stopAvoiding(w)"
       >
-        <span class="max-w-[160px] truncate">Avoiding {{ wayLabel(w) }}</span>
+        <span class="max-w-[160px] truncate">{{ t('notes.avoiding', { name: wayLabel(w) }) }}</span>
         <Icon name="x" :size="12" />
       </button>
-      <button v-if="avoidedWays.length > 1" type="button" class="chip" @click="clearAvoids">Clear all</button>
+      <button v-if="avoidedWays.length > 1" type="button" class="chip" @click="clearAvoids">{{ t('notes.clearAll') }}</button>
     </div>
   </div>
 </template>

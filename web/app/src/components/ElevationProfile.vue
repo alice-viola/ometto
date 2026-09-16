@@ -5,6 +5,7 @@ import { fmtDistance, fmtElevation } from '../lib/format';
 import { cumulative, pointAt, type Coord } from '../lib/geo';
 import { hoverPoint } from '../composables/useHover';
 import { hasHover } from '../composables/useMedia';
+import { t } from '../i18n';
 
 const props = defineProps<{ route: RouteAlternative }>();
 
@@ -156,7 +157,7 @@ function onLeave() {
       :viewBox="`0 0 ${width} ${HEIGHT}`"
       class="block touch-none"
       role="img"
-      :aria-label="`Elevation profile: ${fmtElevation(Math.round(domain.y0))} to ${fmtElevation(Math.round(domain.y1))} over ${fmtDistance(route.meters)}`"
+      :aria-label="t('profile.aria', { from: fmtElevation(Math.round(domain.y0)), to: fmtElevation(Math.round(domain.y1)), distance: fmtDistance(route.meters) })"
       @pointermove="onMove"
       @pointerdown="onMove"
       @pointerleave="onLeave"
@@ -235,10 +236,10 @@ function onLeave() {
     <div class="mt-0.5 flex h-4 items-center justify-between text-[11px]">
       <span v-if="cursor" class="text-ink">
         {{ fmtElevation(Math.round(cursor.e)) }}
-        <span class="text-faint">at</span>
+        <span class="text-faint">{{ t('profile.at') }}</span>
         {{ fmtDistance(cursor.m) }}
       </span>
-      <span v-else class="text-faint">{{ hasHover ? 'Hover' : 'Touch' }} the profile for height and distance</span>
+      <span v-else class="text-faint">{{ hasHover ? t('profile.hoverHint') : t('profile.touchHint') }}</span>
     </div>
   </div>
 </template>

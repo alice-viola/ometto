@@ -1,4 +1,5 @@
 import type {
+  AvoidPoint,
   Favourite,
   FeatureCollection,
   GeocodeResult,
@@ -9,8 +10,11 @@ import type {
   RouteRequest,
   RouteResponse,
 } from './types';
+import type { SharedQuery } from './url';
 import { joinLegs } from './geo';
+import { t } from '../i18n';
 import { userId } from './storage';
+import { getSaved, queryKey } from './offline';
 
 /** Fixtures are loaded on demand so they never weigh on the real bundle. */
 const mock = () => import('./mock');
@@ -36,18 +40,18 @@ export class ApiError extends Error {
   }
   /** A sentence for a person, never a status code. */
   get human(): string {
-    if (this.status === 0) return 'The routing service is not reachable.';
+    if (this.status === 0) return t('error.unreachable');
     if (this.status === 429) {
       const s = this.retryAfter;
-      return s && s > 1
-        ? `Too many requests, wait a moment — about ${s} ${s === 1 ? 'second' : 'seconds'}.`
-        : 'Too many requests, wait a moment.';
+      return s && s > 1 ? t('error.tooManyWait', { n: s }) : t('error.tooMany');
     }
-    if (this.status === 504) return 'The route took too long to compute. Try again.';
-    if (this.status === 503) return 'The service is busy. Try again in a moment.';
-    if (this.status === 404) return 'Not available yet.';
-    if (this.status >= 500) return 'The routing service had a problem. Try again.';
-    return this.message || 'That request could not be completed.';
+    if (this.status === 504) return t('error.timeout');
+    if (this.status === 503) return t('error.busy');
+    if (this.status === 404) return t('error.notAvailable');
+    if (this.status >= 500) return t('error.server');
+    // A 400 carries the service's own words, which are for a developer: the
+    // page never lets a person send what they describe.
+    return this.message || t('error.generic');
   }
 }
 
@@ -72,6 +76,29 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
+}
+
+/** What `route()` is asked, which carries two fields the wire type predates. */
+type RouteQuery = Omit<RouteRequest, 'user'> & { lifts?: boolean; avoid?: AvoidPoint[] };
+
+const asShared = (r: RouteQuery): SharedQuery => ({
+  points: r.points,
+  mode: r.mode,
+  grade: r.grade,
+  alternatives: r.alternatives,
+  lifts: r.lifts,
+  avoid: r.avoid,
+});
+
+/**
+ * The engine is a graph on the server, so there is no answering a new question
+ * without it. What there can be is the answer this browser was already given
+ * to this exact question, and was asked to keep.
+ */
+async function savedAnswer(key: string): Promise<RouteResponse | null> {
+  const rec = await getSaved(key);
+  if (!rec?.response?.routes?.length) return null;
+  return { ...rec.response, fromSaved: { at: rec.savedAt } };
 }
 
 const qs = (params: Record<string, string | number | undefined>) => {
@@ -105,7 +132,7 @@ export const api = {
    * simply does not send one — otherwise nudging a marker would fill the list
    * with near-duplicates of the same trip.
    */
-  route(req: Omit<RouteRequest, 'user'>, signal?: AbortSignal, record = true): Promise<RouteResponse> {
+  async route(req: Omit<RouteRequest, 'user'>, signal?: AbortSignal, record = true): Promise<RouteResponse> {
     const body = (record ? { ...req, user: userId() } : { ...req }) as RouteRequest;
     // The wire carries each line once, on the legs; the route's own line is
     // joined here, once, so nothing downstream has to know.
@@ -114,12 +141,33 @@ export const api = {
       return res;
     };
     if (MOCK) return mock().then((k) => k.route(body)).then(joined);
-    return request<RouteResponse>('/api/route', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify(body),
-      signal,
-    }).then(joined);
+
+    // Every way back into a trip — a shared link, a history row, the saved
+    // list — comes through here, so this is the one place offline has to be
+    // answered. With no connection at all the store is asked first rather
+    // than after a request that is going to fail anyway.
+    const key = queryKey(asShared(req as RouteQuery));
+    if (!navigator.onLine) {
+      const saved = await savedAnswer(key);
+      if (saved) return saved;
+    }
+    try {
+      return joined(
+        await request<RouteResponse>('/api/route', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify(body),
+          signal,
+        }),
+      );
+    } catch (e) {
+      // Status 0 is the network itself: a tunnel, a dead spot, a flight. Any
+      // other refusal is the service talking and must be shown as it is.
+      if (!(e instanceof ApiError) || e.status !== 0) throw e;
+      const saved = await savedAnswer(key);
+      if (saved) return saved;
+      throw e;
+    }
   },
 
   favourites(): Promise<Favourite[]> {

@@ -2,6 +2,7 @@
 import { DISCLAIMER_POINTS, acceptDisclaimer } from '../composables/useDisclaimer';
 import Icon from './Icon.vue';
 import BrandMark from './BrandMark.vue';
+import { t } from '../i18n';
 </script>
 
 <template>
@@ -27,7 +28,7 @@ import BrandMark from './BrandMark.vue';
       <div class="mt-3 flex items-start gap-2.5 px-5">
         <Icon name="warning" :size="20" class="relative top-0.5 shrink-0" :style="{ color: 'var(--dest)' }" />
         <h2 id="disclaimer-title" class="text-[17px] font-semibold leading-snug tracking-[-0.01em]">
-          A planning aid, not a guide
+          {{ t('disclaimer.title') }}
         </h2>
       </div>
 
@@ -46,7 +47,7 @@ import BrandMark from './BrandMark.vue';
            list has been scrolled to its end. -->
       <div class="sticky bottom-0 mt-4 border-t border-line bg-surface px-5 py-4">
         <button class="btn-primary w-full px-4 py-3 text-[14px]" @click="acceptDisclaimer">
-          I understand
+          {{ t('disclaimer.accept') }}
         </button>
       </div>
     </div>

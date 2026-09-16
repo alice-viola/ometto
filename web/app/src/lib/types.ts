@@ -151,6 +151,12 @@ export interface RouteResponse {
   neededGrade?: Grade;
   computedMs?: number;
   reason?: string;
+  /**
+   * Never on the wire. Set by the page when the service could not be reached
+   * and the answer came out of this browser's saved routes instead, so the
+   * card can say how old it is.
+   */
+  fromSaved?: { at: number };
 }
 
 export interface Favourite {

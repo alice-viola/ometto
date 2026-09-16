@@ -2,12 +2,15 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import Icon from '../Icon.vue';
 import { api } from '../../lib/api';
-import { KIND_LABELS, fmtElevation } from '../../lib/format';
+import { fmtElevation, kindLabel } from '../../lib/format';
 import type { GeocodeResult } from '../../lib/types';
 import { favourites } from '../../composables/useFavourites';
 import { history, historyLoaded, loadHistory } from '../../composables/useHistory';
 import { canCompute, compute, parkingIndex, placeIndices, setPoint, slots } from '../../composables/usePlanner';
+import { online } from '../../composables/useOffline';
 import { toast } from '../../composables/useToast';
+import { t } from '../../i18n';
+import { detailText, wayName } from '../../i18n/service';
 
 /**
  * Typing a place takes the whole screen, the way it does in every map app:
@@ -21,15 +24,15 @@ const emit = defineEmits<{ close: [] }>();
 const at = computed(() => placeIndices.value.indexOf(props.index));
 const placeholder = computed(() =>
   at.value === 0
-    ? 'From'
+    ? t('point.from')
     : at.value === placeIndices.value.length - 1
-      ? 'To'
+      ? t('point.to')
       : props.index === parkingIndex.value
-        ? 'Where you park'
-        : `Stop ${at.value}`,
+        ? t('point.park')
+        : t('point.stop', { n: at.value }),
 );
 
-const text = ref(slots.value[props.index]?.point?.name ?? '');
+const text = ref(wayName(slots.value[props.index]?.point?.name));
 const results = ref<GeocodeResult[]>([]);
 const loading = ref(false);
 const locating = ref(false);
@@ -81,7 +84,7 @@ const suggestions = computed<GeocodeResult[]>(() => {
       id: `fav-${f.id}`,
       name: f.name,
       kind: (f.kind ?? 'place') as GeocodeResult['kind'],
-      locality: 'Favourite',
+      locality: t('point.favourite'),
       lat: f.lat,
       lon: f.lon,
     });
@@ -93,7 +96,7 @@ const suggestions = computed<GeocodeResult[]>(() => {
         id: `rec-${p.lat.toFixed(4)},${p.lon.toFixed(4)}`,
         name: p.name!,
         kind: (p.kind ?? 'place') as GeocodeResult['kind'],
-        locality: 'Recent',
+        locality: t('point.recent'),
         lat: p.lat,
         lon: p.lon,
       });
@@ -122,14 +125,14 @@ function clearField() {
 
 function useMyLocation() {
   if (!navigator.geolocation) {
-    toast('This browser cannot share a location.');
+    toast(t('point.noGeolocation'));
     return;
   }
   locating.value = true;
   navigator.geolocation.getCurrentPosition(
     async (pos) => {
       const { latitude: lat, longitude: lon } = pos.coords;
-      let name = 'My location';
+      let name = t('point.myLocation');
       try {
         name = (await api.reverse(lat, lon)).name || name;
       } catch {
@@ -142,7 +145,7 @@ function useMyLocation() {
     },
     () => {
       locating.value = false;
-      toast('Location is not available.');
+      toast(t('point.locationUnavailable'));
     },
     { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 },
   );
@@ -177,12 +180,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex flex-col bg-surface" role="dialog" :aria-label="`Choose ${placeholder}`">
+  <div class="fixed inset-0 z-50 flex flex-col bg-surface" role="dialog" :aria-label="t('screen.choose', { label: placeholder })">
     <div
       class="flex items-center gap-1 border-b border-line px-2 pb-2"
       :style="{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)' }"
     >
-      <button type="button" class="ctl" aria-label="Back to the map" @click="emit('close')">
+      <button type="button" class="ctl" :aria-label="t('menu.backToMap')" @click="emit('close')">
         <Icon name="arrowLeft" :size="19" />
       </button>
       <div class="field flex min-w-0 flex-1 items-center gap-2 pl-3 pr-1">
@@ -201,7 +204,7 @@ onBeforeUnmount(() => {
           spellcheck="false"
           @keydown="onKeydown"
         />
-        <button v-if="text" type="button" class="ctl" :aria-label="`Clear ${placeholder}`" @click="clearField">
+        <button v-if="text" type="button" class="ctl" :aria-label="t('point.clearField', { label: placeholder })" @click="clearField">
           <Icon name="x" :size="15" />
         </button>
       </div>
@@ -210,28 +213,28 @@ onBeforeUnmount(() => {
     <ul class="scroll-quiet min-h-0 flex-1 overflow-y-auto overscroll-contain pb-8" role="listbox">
       <li v-if="!searched" class="row" role="option" @click="useMyLocation">
         <Icon name="locate" :size="17" class="shrink-0 text-muted" />
-        <span class="text-[15px]">{{ locating ? 'Finding you…' : 'Use my location' }}</span>
+        <span class="text-[15px]">{{ locating ? t('point.findingYou') : t('point.useMyLocation') }}</span>
       </li>
       <li v-if="!searched" class="row" role="option" @click="emit('close')">
         <Icon name="place" :size="17" class="shrink-0 text-muted" />
-        <span class="text-[15px]">Choose on the map</span>
+        <span class="text-[15px]">{{ t('screen.chooseOnMap') }}</span>
       </li>
-      <li v-if="!searched && suggestions.length" class="label px-4 pt-3 pb-1">Favourites and recent</li>
+      <li v-if="!searched && suggestions.length" class="label px-4 pt-3 pb-1">{{ t('screen.favAndRecent') }}</li>
 
-      <li v-if="loading && !suggestions.length" class="px-4 py-3 text-[14px] text-muted">Searching…</li>
+      <li v-if="loading && !suggestions.length" class="px-4 py-3 text-[14px] text-muted">{{ t('point.searching') }}</li>
       <li v-else-if="searched && !loading && !suggestions.length" class="px-4 py-3 text-[14px] text-muted">
-        Nothing by that name in Trentino-Alto Adige.
+        {{ online ? t('screen.nothingFound') : t('offline.searchNeedsNetwork') }}
       </li>
 
       <li v-for="r in suggestions" :key="r.id" class="row" role="option" @click="pick(r)">
         <Icon :name="iconOf(r.kind)" :size="17" class="shrink-0 text-muted" />
         <span class="min-w-0 flex-1">
           <span class="flex items-baseline gap-2">
-            <span class="min-w-0 flex-1 truncate text-[15px]">{{ r.name }}</span>
+            <span class="min-w-0 flex-1 truncate text-[15px]">{{ wayName(r.name) }}</span>
             <span v-if="r.ele" class="shrink-0 text-[12.5px] text-muted">{{ fmtElevation(r.ele) }}</span>
           </span>
           <span class="block truncate text-[12.5px] text-faint">
-            {{ KIND_LABELS[r.kind] ?? r.kind }}<template v-if="r.detail"> · {{ r.detail }}</template><template v-if="r.locality"> · {{ r.locality }}</template>
+            {{ kindLabel(r.kind) }}<template v-if="r.detail"> · {{ detailText(r.detail) }}</template><template v-if="r.locality"> · {{ r.locality }}</template>
           </span>
         </span>
       </li>

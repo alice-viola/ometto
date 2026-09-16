@@ -1,22 +1,22 @@
-import { ref, watch } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import { api, ApiError } from '../lib/api';
 import type { HistoryEntry } from '../lib/types';
+import { t } from '../i18n';
 import { historyToken } from './usePlanner';
 
 export const history = ref<HistoryEntry[]>([]);
 export const historyLoaded = ref(false);
-export const historyError = ref('');
+const historySay = shallowRef<(() => string) | null>(null);
+export const historyError = computed(() => historySay.value?.() ?? '');
 
 export async function loadHistory(): Promise<void> {
   try {
     history.value = await api.history();
-    historyError.value = '';
+    historySay.value = null;
   } catch (e) {
     history.value = [];
-    historyError.value =
-      e instanceof ApiError && (e.status === 503 || e.status === 429)
-        ? 'Saved places are unavailable right now. Routing still works.'
-        : 'Recent routes are not available right now.';
+    const degraded = e instanceof ApiError && (e.status === 503 || e.status === 429);
+    historySay.value = () => (degraded ? t('fav.degraded') : t('history.unavailable'));
   } finally {
     historyLoaded.value = true;
   }

@@ -1,20 +1,22 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import Icon from '../Icon.vue';
 import HistoryView from '../HistoryView.vue';
 import FavouritesView from '../FavouritesView.vue';
+import OfflineView from '../OfflineView.vue';
 import SettingsView from '../SettingsView.vue';
 import AboutView from '../AboutView.vue';
 import { MAX_POINTS, addStop, clearAll, placeIndices } from '../../composables/usePlanner';
 import { isDark, useTheme } from '../../composables/useTheme';
 import { appConfig } from '../../lib/config';
+import { t } from '../../i18n';
 
 /**
  * Everything that is not the question or the answer, one screen at a time:
  * the list, then the section it opens. The sections are the same components
  * the desktop panel shows; only the frame around them is a phone's.
  */
-export type MenuView = 'menu' | 'history' | 'favourites' | 'settings' | 'about';
+export type MenuView = 'menu' | 'history' | 'favourites' | 'saved' | 'settings' | 'about';
 
 const props = defineProps<{ view: MenuView }>();
 const emit = defineEmits<{ close: [] }>();
@@ -22,13 +24,7 @@ const emit = defineEmits<{ close: [] }>();
 const current = ref<MenuView>(props.view);
 const { toggle } = useTheme();
 
-const TITLES: Record<MenuView, string> = {
-  menu: 'Ometto',
-  history: 'Recent routes',
-  favourites: 'Favourites',
-  settings: 'Settings',
-  about: 'About',
-};
+const title = computed(() => t(`panel.title.${current.value === 'menu' ? 'plan' : current.value}`));
 
 function back() {
   if (current.value === 'menu') emit('close');
@@ -49,20 +45,20 @@ const dataDate = String(appConfig().dataDates.osm ?? appConfig().dataDates.osmEx
 </script>
 
 <template>
-  <div class="fixed inset-0 z-50 flex flex-col bg-surface" role="dialog" :aria-label="TITLES[current]">
+  <div class="fixed inset-0 z-50 flex flex-col bg-surface" role="dialog" :aria-label="title">
     <header
       class="flex items-center gap-1 border-b border-line px-2 pb-2"
       :style="{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 8px)' }"
     >
-      <button type="button" class="ctl" :aria-label="current === 'menu' ? 'Back to the map' : 'Back'" @click="back">
+      <button type="button" class="ctl" :aria-label="current === 'menu' ? t('menu.backToMap') : t('menu.back')" @click="back">
         <Icon name="arrowLeft" :size="19" />
       </button>
-      <h1 class="min-w-0 flex-1 truncate text-[17px] font-medium">{{ TITLES[current] }}</h1>
+      <h1 class="min-w-0 flex-1 truncate text-[17px] font-medium">{{ title }}</h1>
       <button
         v-if="current === 'menu'"
         type="button"
         class="ctl"
-        :aria-label="isDark ? 'Switch to the light theme' : 'Switch to the dark theme'"
+        :aria-label="isDark ? t('panel.switchToLight') : t('panel.switchToDark')"
         @click="toggle"
       >
         <Icon :name="isDark ? 'sun' : 'moon'" :size="18" />
@@ -71,22 +67,24 @@ const dataDate = String(appConfig().dataDates.osm ?? appConfig().dataDates.osmEx
 
     <div class="scroll-quiet min-h-0 flex-1 overflow-y-auto overscroll-contain" :class="current === 'menu' ? '' : 'px-4 pt-3 pb-8'">
       <ul v-if="current === 'menu'" class="pb-8">
-        <li><button type="button" class="row" @click="current = 'history'"><Icon name="history" :size="18" /> Recent routes</button></li>
-        <li><button type="button" class="row" @click="current = 'favourites'"><Icon name="star" :size="18" /> Favourites</button></li>
-        <li><button type="button" class="row" @click="current = 'settings'"><Icon name="settings" :size="18" /> Settings</button></li>
-        <li><button type="button" class="row" @click="current = 'about'"><Icon name="info" :size="18" /> About</button></li>
+        <li><button type="button" class="row" @click="current = 'history'"><Icon name="history" :size="18" /> {{ t('panel.title.history') }}</button></li>
+        <li><button type="button" class="row" @click="current = 'favourites'"><Icon name="star" :size="18" /> {{ t('panel.title.favourites') }}</button></li>
+        <li><button type="button" class="row" @click="current = 'saved'"><Icon name="download" :size="18" /> {{ t('panel.title.saved') }}</button></li>
+        <li><button type="button" class="row" @click="current = 'settings'"><Icon name="settings" :size="18" /> {{ t('panel.title.settings') }}</button></li>
+        <li><button type="button" class="row" @click="current = 'about'"><Icon name="info" :size="18" /> {{ t('panel.title.about') }}</button></li>
         <li class="mt-2 border-t border-line pt-2">
           <button type="button" class="row" :disabled="placeIndices.length >= MAX_POINTS" @click="addAStop">
-            <Icon name="plus" :size="18" /> Add a stop
+            <Icon name="plus" :size="18" /> {{ t('menu.addStop') }}
           </button>
         </li>
-        <li><button type="button" class="row" @click="startOver"><Icon name="trash" :size="18" /> Start over</button></li>
+        <li><button type="button" class="row" @click="startOver"><Icon name="trash" :size="18" /> {{ t('menu.startOver') }}</button></li>
         <li class="px-4 pt-4 text-[12px] text-faint">
-          Planning aid, not a guide<template v-if="dataDate"> · data {{ dataDate }}</template>
+          {{ dataDate ? t('panel.footerData', { date: dataDate }) : t('panel.footer') }}
         </li>
       </ul>
       <HistoryView v-else-if="current === 'history'" @done="emit('close')" />
       <FavouritesView v-else-if="current === 'favourites'" @done="emit('close')" />
+      <OfflineView v-else-if="current === 'saved'" @done="emit('close')" />
       <SettingsView v-else-if="current === 'settings'" @about="current = 'about'" />
       <AboutView v-else />
     </div>

@@ -20,7 +20,16 @@ import {
   status,
 } from '../../composables/usePlanner';
 import { frameRequest, sheetHeight } from '../../composables/useMedia';
+import {
+  arrivalClock,
+  following,
+  live,
+  position,
+  status as liveStatus,
+  toggle as toggleLive,
+} from '../../composables/useLocation';
 import { fmtAscent, fmtDistance, fmtDuration } from '../../lib/format';
+import { t } from '../../i18n';
 
 /**
  * The phone layout. The map is the whole screen; the question floats over its
@@ -78,6 +87,45 @@ const chosenAscent = computed(() => {
 });
 
 /**
+ * The buttons that float over the map, from the sheet upwards. The "whole
+ * route" one is only there with an answer to frame; the locate button is there
+ * whenever the map is, and stacks above it when both are.
+ */
+const routeFab = computed(() => hasResult.value && !sheetTall.value);
+function fabBottom(stacked: boolean): string {
+  const lift = stacked ? 70 : 14;
+  // Without a sheet there is nothing between the button and the home
+  // indicator, so it keeps clear of that instead.
+  return sheetHeight.value > 0
+    ? `${sheetHeight.value + lift}px`
+    : `calc(env(safe-area-inset-bottom, 0px) + ${lift}px)`;
+}
+
+/** Off, looking, on, or on and moving with you: one button says all four. */
+const locateLabel = computed(() => {
+  if (following.value) return t('live.stopFollowing');
+  if (liveStatus.value === 'on') return t('live.followPosition');
+  return t('live.showPosition');
+});
+
+/**
+ * Folded to the strip, the one line is about the journey you are on rather
+ * than the one you chose: the same figures as the card, in the same order.
+ */
+const liveStrip = computed(() => {
+  if (liveStatus.value !== 'on' || !position.value) return null;
+  const p = live.value;
+  if (!p) return null;
+  return {
+    distance: fmtDistance(p.remainingMeters),
+    time: fmtDuration(p.remainingSeconds),
+    ascent: fmtAscent(p.remainingAscent),
+    at: arrivalClock(p.remainingSeconds),
+    arrived: p.arrived,
+  };
+});
+
+/**
  * The peek is measured, not guessed: the handle, whatever the notes about the
  * points take, and the headline of the first card — so the lowest open stop
  * shows the answer whole and never cuts it off. The sheet caps it itself.
@@ -120,22 +168,55 @@ onBeforeUnmount(() => ro?.disconnect());
     v-if="hasResult && searching === null && !menu"
     v-show="!sheetTall"
     class="fab"
-    :style="{ bottom: `${sheetHeight + 14}px` }"
-    aria-label="Show the whole route"
-    title="Show the whole route"
+    :style="{ bottom: fabBottom(false) }"
+    :aria-label="t('mobile.wholeRoute')"
+    :title="t('mobile.wholeRoute')"
     @click="frameRequest++"
   >
     <Icon name="route" :size="18" />
   </button>
 
+  <!-- And above that: where you are, and whether the map goes with you. -->
+  <button
+    v-if="searching === null && !menu"
+    class="fab"
+    :class="{
+      'is-locating': liveStatus === 'locating',
+      'is-on': liveStatus === 'on',
+      'is-following': following,
+    }"
+    :style="{ bottom: fabBottom(routeFab) }"
+    :aria-label="locateLabel"
+    :title="locateLabel"
+    :aria-pressed="following"
+    @click="toggleLive()"
+  >
+    <Icon name="locate" :size="18" />
+  </button>
+
   <BottomSheet v-if="showSheet" :peek="peek" :closed="chosen ? 44 : 0">
-    <!-- Folded to a strip: the route in one line, and a grip to open it. -->
+    <!-- Folded to a strip: the route in one line, and a grip to open it. On
+         the way, the same line counts down instead. -->
     <template v-if="chosen" #closed>
-      <Icon v-for="m in chosenModes" :key="m" :name="m" :size="15" :style="{ color: `var(--${m})` }" />
-      <span class="font-semibold text-ink">{{ fmtDuration(chosen.seconds) }}</span>
-      <span class="text-muted">
-        {{ fmtDistance(chosen.meters) }} · {{ fmtAscent(chosenAscent) }}
-      </span>
+      <template v-if="liveStrip">
+        <span class="live-dot" role="img" :aria-label="t('live.dotAria')" />
+        <template v-if="liveStrip.arrived">
+          <span class="truncate font-semibold text-ink">{{ t('live.arrived') }}</span>
+        </template>
+        <template v-else>
+          <span class="font-semibold text-ink">{{ liveStrip.distance }} · {{ liveStrip.time }}</span>
+          <span class="min-w-0 truncate text-muted">
+            · {{ liveStrip.ascent }} · {{ liveStrip.at }}
+          </span>
+        </template>
+      </template>
+      <template v-else>
+        <Icon v-for="m in chosenModes" :key="m" :name="m" :size="15" :style="{ color: `var(--${m})` }" />
+        <span class="font-semibold text-ink">{{ fmtDuration(chosen.seconds) }}</span>
+        <span class="text-muted">
+          {{ fmtDistance(chosen.meters) }} · {{ fmtAscent(chosenAscent) }}
+        </span>
+      </template>
     </template>
     <div class="scroll-quiet h-full overflow-y-auto overscroll-contain px-3 pb-6">
       <div ref="content">
@@ -167,5 +248,37 @@ onBeforeUnmount(() => ro?.disconnect());
 }
 .fab:active {
   background: var(--surface-3);
+}
+/* The locate button says where it is in one glance: looking, on, or carrying
+   the map with it. The reduced-motion rule in theme.css stills the pulse. */
+.fab.is-on {
+  color: var(--position);
+}
+.fab.is-following {
+  color: var(--position);
+  border-color: color-mix(in srgb, var(--position) 40%, var(--line));
+  background: color-mix(in srgb, var(--position) 13%, var(--surface));
+}
+.fab.is-locating {
+  color: var(--position);
+  animation: fab-breathe 1.2s ease-in-out infinite;
+}
+@keyframes fab-breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* The map's dot, said again in one line of text. */
+.live-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--position);
 }
 </style>

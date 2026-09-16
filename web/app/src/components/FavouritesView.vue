@@ -11,7 +11,9 @@ import {
   renameFavourite,
 } from '../composables/useFavourites';
 import { avoids, grade, lifts, mode, setPoint, slots } from '../composables/usePlanner';
-import { MODE_LABELS } from '../lib/format';
+import { modeLabel } from '../lib/format';
+import { t } from '../i18n';
+import { wayName } from '../i18n/service';
 import type { Favourite } from '../lib/types';
 
 const emit = defineEmits<{ done: [] }>();
@@ -40,7 +42,7 @@ function use(f: Favourite, where: 'start' | 'destination') {
 
 async function startEdit(f: Favourite) {
   editing.value = f.id;
-  draft.value = f.name;
+  draft.value = wayName(f.name);
   await nextTick();
   editInput.value?.select();
 }
@@ -62,8 +64,7 @@ async function commit(f: Favourite) {
 
     <div v-else-if="!favourites.length" class="pt-1">
       <p class="text-[13.5px] leading-relaxed text-muted">
-        Star a place on the map, or save a destination from a route, and it waits here for the next
-        time you set off.
+        {{ t('fav.empty') }}
       </p>
     </div>
 
@@ -74,10 +75,10 @@ async function commit(f: Favourite) {
             ref="editInput"
             v-model="draft"
             class="field h-8 min-w-0 flex-1 px-2 text-[13px] outline-none"
-            aria-label="Favourite name"
+            :aria-label="t('fav.name')"
             @keydown.esc.prevent="editing = null"
           />
-          <button type="submit" class="btn-primary px-2.5 py-1.5 text-[12px]">Save</button>
+          <button type="submit" class="btn-primary px-2.5 py-1.5 text-[12px]">{{ t('fav.save') }}</button>
         </form>
 
         <template v-else>
@@ -87,12 +88,12 @@ async function commit(f: Favourite) {
               :size="15"
               class="shrink-0 text-muted"
             />
-            <span class="min-w-0 flex-1 truncate text-[13.5px] font-medium">{{ f.name }}</span>
+            <span class="min-w-0 flex-1 truncate text-[13.5px] font-medium">{{ wayName(f.name) }}</span>
             <span
               v-if="favouritePlans[f.id]"
               class="flex shrink-0 items-center gap-0.5"
-              :title="`Saved for ${MODE_LABELS[favouritePlans[f.id].mode]}`"
-              :aria-label="`Saved for ${MODE_LABELS[favouritePlans[f.id].mode]}`"
+              :title="t('fav.savedFor', { mode: modeLabel(favouritePlans[f.id].mode) })"
+              :aria-label="t('fav.savedFor', { mode: modeLabel(favouritePlans[f.id].mode) })"
             >
               <Icon
                 v-for="m in favouritePlans[f.id].mode.split('+')"
@@ -102,16 +103,16 @@ async function commit(f: Favourite) {
                 :style="{ color: `var(--${m})` }"
               />
             </span>
-            <button class="btn-quiet p-1.5" :aria-label="`Rename ${f.name}`" @click="startEdit(f)">
+            <button class="btn-quiet p-1.5" :aria-label="t('fav.rename', { name: wayName(f.name) })" @click="startEdit(f)">
               <Icon name="pencil" :size="13" />
             </button>
-            <button class="btn-quiet p-1.5" :aria-label="`Delete ${f.name}`" @click="removeFavourite(f.id)">
+            <button class="btn-quiet p-1.5" :aria-label="t('fav.delete', { name: wayName(f.name) })" @click="removeFavourite(f.id)">
               <Icon name="trash" :size="13" />
             </button>
           </div>
           <div class="mt-1.5 flex gap-1.5">
-            <button class="chip" @click="use(f, 'start')">Use as start</button>
-            <button class="chip" @click="use(f, 'destination')">Use as destination</button>
+            <button class="chip" @click="use(f, 'start')">{{ t('fav.useAsStart') }}</button>
+            <button class="chip" @click="use(f, 'destination')">{{ t('fav.useAsDestination') }}</button>
           </div>
         </template>
       </article>

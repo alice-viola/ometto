@@ -3,6 +3,8 @@ import { computed, ref } from 'vue';
 import Icon from './Icon.vue';
 import { fmtDistance } from '../lib/format';
 import type { Step } from '../lib/types';
+import { t } from '../i18n';
+import { wayName } from '../i18n/service';
 
 const props = defineProps<{ steps: Step[] }>();
 const expanded = ref(false);
@@ -37,7 +39,7 @@ const hidden = computed(() => Math.max(0, merged.value.length - LIMIT));
         class="flex items-baseline gap-2 border-b border-line py-1.5 last:border-b-0"
       >
         <Icon :name="s.mode" :size="13" class="relative top-0.5 shrink-0" :style="{ color: `var(--${s.mode})` }" />
-        <span class="min-w-0 flex-1 truncate text-[13px]">{{ s.name }}</span>
+        <span class="min-w-0 flex-1 truncate text-[13px]">{{ wayName(s.name) }}</span>
         <span class="shrink-0 text-[12px] text-muted">{{ fmtDistance(s.meters) }}</span>
       </li>
     </ol>
@@ -46,10 +48,10 @@ const hidden = computed(() => Math.max(0, merged.value.length - LIMIT));
       class="btn-quiet mt-1 px-1.5 py-1 text-[12px]"
       @click="expanded = true"
     >
-      Show {{ hidden }} more
+      {{ t('steps.showMore', { n: hidden }) }}
     </button>
     <button v-else-if="expanded" class="btn-quiet mt-1 px-1.5 py-1 text-[12px]" @click="expanded = false">
-      Show less
+      {{ t('steps.showLess') }}
     </button>
   </div>
 </template>

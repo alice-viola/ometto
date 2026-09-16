@@ -13,6 +13,8 @@ import { addFavourite } from '../composables/useFavourites';
 import { isCompact } from '../composables/useMedia';
 import { toast } from '../composables/useToast';
 import type { PopoverState } from '../map/popover';
+import { t } from '../i18n';
+import { detailText, featureKind, wayName } from '../i18n/service';
 
 const props = defineProps<{ state: PopoverState }>();
 const emit = defineEmits<{ close: [] }>();
@@ -31,7 +33,7 @@ const lon = computed(() => props.state.lngLat[0]);
 
 /** A lift is worth saying out loud: routing via one means riding it. */
 const viaLabel = computed(() =>
-  props.state.feature?.kind === 'lift' ? 'Ride this lift' : 'Route via here',
+  props.state.feature?.kind === 'lift' ? t('popover.rideLift') : t('popover.routeVia'),
 );
 
 function point(name?: string) {
@@ -67,19 +69,19 @@ function dropVia() {
 }
 
 async function startNaming() {
-  favName.value = props.state.name || '';
+  favName.value = wayName(props.state.name);
   naming.value = true;
   await nextTick();
   nameInput.value?.select();
 }
 
 async function saveFavourite() {
-  const name = favName.value.trim() || props.state.name || 'Saved place';
+  const name = favName.value.trim() || wayName(props.state.name) || t('card.savedPlace');
   try {
     await addFavourite({ name, lat: lat.value, lon: lon.value });
-    toast(`${name} saved to favourites`);
+    toast(t('card.saved', { name }));
   } catch {
-    toast('That could not be saved.');
+    toast(t('card.couldNotSave'));
   }
   emit('close');
 }
@@ -98,7 +100,7 @@ async function saveFavourite() {
       :class="isCompact ? 'w-full' : 'pointer-events-auto absolute w-[236px] -translate-x-1/2 -translate-y-full'"
       :style="isCompact ? undefined : { left: `${clampedX}px`, top: `${state.y - 16}px` }"
       role="dialog"
-      aria-label="Point actions"
+      :aria-label="t('popover.actions')"
     >
       <div
         class="card overflow-hidden"
@@ -111,20 +113,20 @@ async function saveFavourite() {
         <div class="flex items-start gap-2 px-3 pt-2.5 pb-2" :class="isCompact ? 'items-center px-4' : ''">
           <div class="min-w-0 flex-1">
             <div class="truncate text-[13px] font-semibold leading-snug" :class="isCompact ? 'text-[15px]' : ''">
-              <span v-if="state.loading" class="text-muted">Locating…</span>
-              <span v-else>{{ state.name }}</span>
+              <span v-if="state.loading" class="text-muted">{{ t('popover.locating') }}</span>
+              <span v-else>{{ wayName(state.name) }}</span>
             </div>
             <div class="mt-0.5 truncate text-[11px] text-faint" :class="isCompact ? 'text-[12px]' : ''">
-              <template v-if="state.avoidedId">Avoided</template>
-              <template v-else-if="state.viaIndex !== undefined">On your route</template>
+              <template v-if="state.avoidedId">{{ t('popover.avoided') }}</template>
+              <template v-else-if="state.viaIndex !== undefined">{{ t('popover.onYourRoute') }}</template>
               <template v-else-if="state.feature"
-                >{{ state.feature.kind.replace(/_/g, ' ')
-                }}<template v-if="state.feature.detail"> · {{ state.feature.detail }}</template></template
+                >{{ featureKind(state.feature.kind)
+                }}<template v-if="state.feature.detail"> · {{ detailText(state.feature.detail) }}</template></template
               >
               <template v-else>{{ lat.toFixed(4) }}, {{ lon.toFixed(4) }}</template>
             </div>
           </div>
-          <button class="btn-quiet -mr-1 -mt-0.5 p-1" aria-label="Close" @click="emit('close')">
+          <button class="btn-quiet -mr-1 -mt-0.5 p-1" :aria-label="t('popover.close')" @click="emit('close')">
             <Icon name="x" :size="14" />
           </button>
         </div>
@@ -132,12 +134,12 @@ async function saveFavourite() {
         <div v-if="!naming" class="border-t border-line">
           <!-- A via of one's own: the only thing to do with it is undo it. -->
           <button v-if="state.viaIndex !== undefined" class="popover-action" @click="dropVia">
-            <Icon name="x" :size="15" /> Remove this via
+            <Icon name="x" :size="15" /> {{ t('popover.removeVia') }}
           </button>
 
           <template v-else-if="state.avoidedId">
             <button class="popover-action" @click="unavoid">
-              <Icon name="check" :size="15" /> Stop avoiding
+              <Icon name="check" :size="15" /> {{ t('popover.stopAvoiding') }}
             </button>
           </template>
 
@@ -148,40 +150,40 @@ async function saveFavourite() {
                 {{ viaLabel }}
               </button>
               <button class="popover-action" :style="{ color: 'var(--dest)' }" @click="avoid">
-                <Icon name="warning" :size="15" /> Avoid this
+                <Icon name="warning" :size="15" /> {{ t('popover.avoidThis') }}
               </button>
             </template>
 
             <button class="popover-action" @click="use('start')">
-              <Icon name="locate" :size="15" /> Start here
+              <Icon name="locate" :size="15" /> {{ t('popover.startHere') }}
             </button>
             <button class="popover-action" @click="use('stop')">
-              <Icon name="plus" :size="15" /> Add stop
+              <Icon name="plus" :size="15" /> {{ t('popover.addStop') }}
             </button>
             <button class="popover-action" @click="use('destination')">
-              <Icon name="place" :size="15" /> Go here
+              <Icon name="place" :size="15" /> {{ t('popover.goHere') }}
             </button>
             <button class="popover-action" @click="startNaming">
-              <Icon name="star" :size="15" /> Save as favourite
+              <Icon name="star" :size="15" /> {{ t('popover.saveFavourite') }}
             </button>
           </template>
         </div>
 
         <form v-else class="border-t border-line p-2.5" :class="isCompact ? 'p-4' : ''" @submit.prevent="saveFavourite">
-          <label class="label mb-1 block" for="fav-name">Name</label>
+          <label class="label mb-1 block" for="fav-name">{{ t('popover.name') }}</label>
           <input
             id="fav-name"
             ref="nameInput"
             v-model="favName"
             class="field w-full px-2 py-1.5 text-[13px] outline-none"
-            placeholder="Saved place"
+            :placeholder="t('card.savedPlace')"
             enterkeyhint="done"
             @keydown.esc.stop.prevent="naming = false"
           />
           <div class="mt-2 flex gap-1.5">
-            <button type="submit" class="btn-primary flex-1 px-2 py-1.5 text-[12px]">Save</button>
+            <button type="submit" class="btn-primary flex-1 px-2 py-1.5 text-[12px]">{{ t('fav.save') }}</button>
             <button type="button" class="btn-quiet px-2 py-1.5 text-[12px]" @click="naming = false">
-              Cancel
+              {{ t('fav.cancel') }}
             </button>
           </div>
         </form>

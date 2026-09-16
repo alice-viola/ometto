@@ -2,7 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import { answeredToken, hasResult } from '../composables/usePlanner';
-import { sheetDragging, sheetHeight, sheetSettled, topInset } from '../composables/useMedia';
+import { sheetDragging, sheetHeight, sheetRequest, sheetSettled, sheetStop, topInset } from '../composables/useMedia';
+import { t } from '../i18n';
 
 /**
  * The stops, from the bottom up. `peek` shows whatever the sheet is for — the
@@ -89,8 +90,17 @@ function nearest(h: number): number {
 
 function snapTo(stop: Stop) {
   restAt.value = stop;
+  sheetStop.value = stop;
   height.value = snaps.value[indexOf(stop)].h;
 }
+
+// The question card asks for the peek when it opens over a tall sheet: the
+// two must not cover the map between them.
+watch(sheetRequest, (want) => {
+  if (!want) return;
+  sheetRequest.value = null;
+  if (!dragging.value) snapTo(want);
+});
 
 const unzoomed = () => !vv || Math.abs(vv.scale - 1) < 0.01;
 
@@ -190,6 +200,7 @@ function onMove(e: PointerEvent) {
     dragging.value = true;
     fromClosed.value = restAt.value === 'closed';
     restAt.value = null;
+    sheetStop.value = null;
     capture(e.pointerId);
   }
   const dt = e.timeStamp - press.lastT;
@@ -289,6 +300,7 @@ onBeforeUnmount(() => {
   vv?.removeEventListener('scroll', measure);
   // A sheet that is gone covers nothing: the map gets its band back.
   sheetHeight.value = 0;
+  sheetStop.value = null;
   sheetSettled.value++;
 });
 </script>
@@ -318,8 +330,8 @@ onBeforeUnmount(() => {
       class="relative flex h-11 shrink-0 cursor-grab touch-none flex-col items-center active:cursor-grabbing"
       :class="closedNow ? 'justify-start pt-[7px]' : 'justify-center'"
       role="separator"
-      :aria-label="closedNow ? 'Tap or drag to open the details' : 'Drag to resize the panel, or tap to open it further'"
-      :title="closedNow ? 'Tap or drag to open' : 'Drag, or tap to open further'"
+      :aria-label="closedNow ? t('sheet.openAria') : t('sheet.resizeAria')"
+      :title="closedNow ? t('sheet.openTitle') : t('sheet.resizeTitle')"
       tabindex="0"
       @keydown.up.prevent="step(1)"
       @keydown.down.prevent="step(-1)"
@@ -335,8 +347,8 @@ onBeforeUnmount(() => {
         v-if="closed > 0 && !closedNow"
         type="button"
         class="fold"
-        aria-label="Hide the details"
-        title="Hide the details"
+        :aria-label="t('sheet.hide')"
+        :title="t('sheet.hide')"
         @pointerdown.stop
         @click.stop="snapTo('closed')"
       >

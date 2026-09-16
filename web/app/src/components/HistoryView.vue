@@ -5,6 +5,8 @@ import { fmtDate, fmtDistance, fmtDuration } from '../lib/format';
 import { applyQuery } from '../composables/usePlanner';
 import { clearHistory, history, historyError, historyLoaded, loadHistory, removeHistory } from '../composables/useHistory';
 import type { HistoryEntry } from '../lib/types';
+import { t } from '../i18n';
+import { wayName } from '../i18n/service';
 
 const emit = defineEmits<{ done: [] }>();
 
@@ -34,8 +36,8 @@ const found = (h: HistoryEntry) => (h.summary?.meters ?? 0) > 0;
 function names(h: HistoryEntry): [string, string] {
   // Vias are shape, not endpoints: a row is named by where you actually go.
   const pts = (h.request?.points ?? []).filter((p) => !p.via);
-  const from = pts[0]?.name || h.summary?.fromName || 'Start';
-  const to = pts[pts.length - 1]?.name || h.summary?.toName || 'Destination';
+  const from = wayName(pts[0]?.name || h.summary?.fromName) || t('map.start');
+  const to = wayName(pts[pts.length - 1]?.name || h.summary?.toName) || t('map.destination');
   return [from, to];
 }
 </script>
@@ -50,7 +52,7 @@ function names(h: HistoryEntry): [string, string] {
 
     <div v-else-if="!history.length" class="pt-1">
       <p class="text-[13.5px] leading-relaxed text-muted">
-        Routes you compute appear here, so you can pick up the same plan tomorrow.
+        {{ t('history.empty') }}
       </p>
     </div>
 
@@ -76,7 +78,7 @@ function names(h: HistoryEntry): [string, string] {
             />
             <!-- A question that came back empty is still worth keeping, but it
                  must not wear the clothes of an answer. -->
-            <span v-if="!found(h)" class="text-faint">No route</span>
+            <span v-if="!found(h)" class="text-faint">{{ t('history.noRoute') }}</span>
             <template v-else>
               <span>{{ fmtDuration(h.summary?.seconds ?? 0) }}</span>
               <span class="text-faint">·</span>
@@ -89,13 +91,13 @@ function names(h: HistoryEntry): [string, string] {
               name="lift"
               :size="13"
               :style="{ color: 'var(--lift)' }"
-              title="Lifts allowed"
+              :title="t('history.liftsAllowed')"
             />
             <span
               v-if="(h.request?.mode ?? '').includes('hike') && h.request?.grade"
               class="font-semibold"
               :style="{ color: `var(--grade-${h.request.grade.toLowerCase()})` }"
-              :title="`Trail grade ${h.request.grade}`"
+              :title="t('history.gradeTitle', { grade: h.request.grade })"
             >
               {{ h.request.grade }}
             </span>
@@ -105,7 +107,7 @@ function names(h: HistoryEntry): [string, string] {
         </button>
         <button
           class="btn-quiet shrink-0 px-2.5"
-          :aria-label="`Delete ${names(h)[0]} to ${names(h)[1]}`"
+          :aria-label="t('history.deleteAria', { from: names(h)[0], to: names(h)[1] })"
           @click="removeHistory(h.id)"
         >
           <Icon name="x" :size="14" />
@@ -113,7 +115,7 @@ function names(h: HistoryEntry): [string, string] {
       </article>
 
       <button class="btn-quiet mt-1 justify-self-start px-2 py-1.5 text-[12.5px]" @click="clearHistory()">
-        Delete all
+        {{ t('history.deleteAll') }}
       </button>
     </div>
   </section>

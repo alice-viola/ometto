@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import tailwindcss from '@tailwindcss/vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 // The API server on :8100 serves this bundle from its own root with an
 // index.html fallback, so a relative base keeps it mountable anywhere.
@@ -56,7 +57,38 @@ function stubConfig() {
 
 export default defineConfig({
   base: './',
-  plugins: [vue(), tailwindcss(), stubConfig()],
+  plugins: [
+    vue(),
+    tailwindcss(),
+    stubConfig(),
+    // The service worker is written by hand (src/sw.ts); the plugin only
+    // stamps the list of built files into it and emits it as /sw.js.
+    VitePWA({
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
+      registerType: 'prompt',
+      // Nothing is injected into index.html: `script-src 'self'` forbids the
+      // inline snippet, so main.ts registers the worker from the bundle.
+      injectRegister: false,
+      // public/site.webmanifest is the manifest and index.html already links
+      // it; a second generated one would compete with it.
+      manifest: false,
+      // The bundle keeps the relative base above so it stays mountable
+      // anywhere, but a worker does not: it has to be one file at the root
+      // with the whole site under it, or a page opened at /?p=… would
+      // register a worker that controls nothing.
+      base: '/',
+      buildBase: '/',
+      scope: '/',
+      injectManifest: {
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
+        // The map engine is one 1.1 MB chunk, and a shell without it is not
+        // a shell: it would load offline and then show no map.
+        maximumFileSizeToCacheInBytes: 3_000_000,
+      },
+    }),
+  ],
   build: {
     outDir: 'dist',
     target: 'es2022',
