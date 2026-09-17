@@ -290,6 +290,9 @@ export default {
   'about.src.copernicusNote': 'The elevation model behind the terrain tiles over this region.',
   'about.src.noto': 'Noto Sans',
   'about.src.notoNote': 'The lettering on the map. SIL Open Font Licence.',
+  'about.code': 'Source code',
+  'about.codeNote':
+    'Free software under the GNU AGPL v3: the engine, this page and the pipeline that builds the map.',
 
   // --- the disclaimer --------------------------------------------------------
   'disclaimer.title': 'A planning aid, not a guide',

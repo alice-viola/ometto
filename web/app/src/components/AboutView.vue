@@ -37,6 +37,9 @@ const SOURCES: { name: Key; href: string; note: Key }[] = [
   { name: 'about.src.noto', href: 'https://fonts.google.com/noto', note: 'about.src.notoNote' },
 ];
 
+/** Where the code this page runs is published (AGPL-3.0, section 13). A copy run elsewhere points this at its own. */
+const SOURCE_CODE = 'https://github.com/alice-viola/ometto';
+
 const LIMITS: Key[] = ['about.limit.realtime', 'about.limit.seasons', 'about.limit.crags'];
 </script>
 
@@ -86,6 +89,18 @@ const LIMITS: Key[] = ['about.limit.realtime', 'about.limit.seasons', 'about.lim
           <p class="text-[11.5px] leading-snug text-faint">{{ t(s.note) }}</p>
         </li>
       </ul>
+    </div>
+
+    <div>
+      <h3 class="label mb-2">{{ t('about.code') }}</h3>
+      <a
+        class="text-[13px] underline decoration-line-strong underline-offset-2 hover:decoration-current max-[899px]:inline-block max-[899px]:py-1.5"
+        :href="SOURCE_CODE"
+        target="_blank"
+        rel="noopener noreferrer"
+        >{{ SOURCE_CODE.replace('https://', '') }}</a
+      >
+      <p class="text-[11.5px] leading-snug text-faint">{{ t('about.codeNote') }}</p>
     </div>
 
     <div>

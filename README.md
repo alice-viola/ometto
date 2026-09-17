@@ -106,3 +106,16 @@ no traffic, no closures, no snow, no lift or bus timetable — and no accounts: 
 elsewhere, their grades whatever a mapper wrote; the app takes you to the wall and stops there. The
 page says as much on first visit, and it means it.
 
+## Licence
+
+Ometto is free software under the [GNU Affero General Public License](LICENSE), version 3 or
+any later version. Use it, change it and share it, as long as what you share, or run changed for
+other people over a network, comes with its source under the same licence. The vendored Queen
+Go SDK in `third_party/queen-client-go` keeps its own Apache-2.0 licence.
+
+The map is not covered by it. What `tools/refresh-region.sh` builds is derived from
+OpenStreetMap (© OpenStreetMap contributors, ODbL 1.0), the Province of Trento's SAT trail
+cadastre and the Copernicus GLO-30 DEM, each under its own terms; the same run writes
+`web/tiles/LICENSES` for the basemap's fonts, sprites and styles, and the page's About lists
+every source.
+

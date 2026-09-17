@@ -303,6 +303,9 @@ const it: Messages = {
     'Il modello di elevazione dietro le terrain tile su questa regione.',
   'about.src.noto': 'Noto Sans',
   'about.src.notoNote': 'I caratteri sulla mappa. SIL Open Font Licence.',
+  'about.code': 'Codice sorgente',
+  'about.codeNote':
+    'Software libero con licenza GNU AGPL v3: il motore, questa pagina e la pipeline che costruisce la mappa.',
 
   // --- avvertenze ------------------------------------------------------------
   'disclaimer.title': 'Uno strumento di pianificazione, non una guida',
