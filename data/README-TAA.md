@@ -15,13 +15,14 @@ Sources:
 | SAT trail catalogue | Province of Trento, `sentieri_sat_v.shp` (ETRS89 / UTM 32N) | 3,879 trails |
 | Hut register | Province of Trento, `Rifugi e Bivacchi.shp` | 191 huts |
 
-The two Province downloads and the extract live outside the repo, in the
-session scratchpad; the paths below are written out in full so the commands can
-be pasted as they are. `$PBF`, `$SAT` and `$HUTS` are only there to keep the
+The two Province downloads and the extract live outside the repo, in the work
+folder `tools/refresh-region.sh` uses: `$QUEEN_WORK`, by default
+`~/.cache/queen-region`, with the extract in `osm/` and the Province's
+shapefiles in `pat/`. `$PBF`, `$SAT` and `$HUTS` are only there to keep the
 lines short.
 
 ```sh
-SCRATCH=/private/tmp/claude-502/-Users-alice-Work-queen/bcc5eab1-da8d-416d-bc4f-0e3823053063/scratchpad
+SCRATCH="${QUEEN_WORK:-$HOME/.cache/queen-region}"
 PBF=$SCRATCH/osm/trentino_alto_adige-latest.osm.pbf
 SAT=$SCRATCH/pat/tracciati/sentieri_sat_v
 HUTS="$SCRATCH/pat/rifugi/Rifugi e Bivacchi"

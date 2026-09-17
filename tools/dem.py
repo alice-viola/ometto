@@ -43,16 +43,12 @@ import numpy as np
 import tifffile
 
 # Where the tiles live. Big, re-downloadable, and not ours: keep them out of git.
-# They were first fetched into a session scratchpad; when that is gone the cache
-# in $HOME takes over and `fetch` refills it in about ten seconds.
-_SCRATCH = pathlib.Path(
-    "/private/tmp/claude-502/-Users-alice-Work-queen"
-    "/bcc5eab1-da8d-416d-bc4f-0e3823053063/scratchpad/dem"
-)
+# $QUEEN_DEM_DIR when it is set (tools/refresh-region.sh points it at its work
+# folder), else a cache in $HOME; `fetch` fills an empty one in about ten seconds.
 TILE_DIR = (
     pathlib.Path(os.environ["QUEEN_DEM_DIR"])
     if os.environ.get("QUEEN_DEM_DIR")
-    else (_SCRATCH if _SCRATCH.is_dir() else pathlib.Path.home() / ".cache" / "queen-dem")
+    else pathlib.Path.home() / ".cache" / "queen-dem"
 )
 
 # The default for a bare `fetch`: the tiles that cover Trentino

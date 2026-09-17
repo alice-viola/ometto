@@ -1,11 +1,12 @@
 /** The proof sheet: the mark at real sizes, in both themes, plus the exports. */
 import { writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { cairnSvg, specFor, CAIRN, CAIRN_SMALL } from '../src/brand/cairn.mjs';
 
 const SIZES = [16, 24, 32, 64, 256];
-const OUT =
-  process.argv[2] ??
-  '/private/tmp/claude-502/-Users-alice-Work-queen/bcc5eab1-da8d-416d-bc4f-0e3823053063/scratchpad/ometto-mark.html';
+/** Where the sheet goes: the path given, else the system's temporary folder. */
+const OUT = process.argv[2] ?? join(tmpdir(), 'ometto-mark.html');
 
 const mark = (s, ink, variant = 'filled') =>
   cairnSvg({ size: s, color: ink, variant, spec: specFor(s) });
