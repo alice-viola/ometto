@@ -256,6 +256,7 @@ export default {
   'settings.units': 'Units',
   'settings.unitsNote': 'Metric: kilometres, metres, hours and minutes.',
   'settings.about': 'About',
+  'settings.aboutOpen': 'Sources, limits and source code',
   'settings.aboutNote':
     "Map, paths and lifts from OpenStreetMap. Marked trails and place names from SAT and the Province of Trento. Elevation from the public Terrarium tiles. Walking times follow the Alpine clubs' rule: distance and climb counted together, the smaller of the two halved.",
 

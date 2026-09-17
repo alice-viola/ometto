@@ -102,6 +102,13 @@ const THEMES: { id: ThemeChoice; label: Key; icon: string }[] = [
       <p class="text-[12px] leading-relaxed text-muted">
         {{ t('settings.aboutNote') }}
       </p>
+      <!-- The whole page — every source, the limits, the source code — one
+           press away, and not only from the footer line. -->
+      <button type="button" class="about-open mt-2.5" @click="emit('about')">
+        <Icon name="info" :size="15" />
+        <span class="min-w-0 flex-1 truncate text-left">{{ t('settings.aboutOpen') }}</span>
+        <Icon name="chevronRight" :size="15" class="text-faint" />
+      </button>
     </div>
   </section>
 </template>
@@ -139,6 +146,22 @@ const THEMES: { id: ThemeChoice; label: Key; icon: string }[] = [
   border-color: var(--ink);
   color: var(--ink-invert);
 }
+.about-open {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-2);
+  color: var(--ink);
+  font-size: 12.5px;
+  transition: border-color 0.14s ease;
+}
+.about-open:hover {
+  border-color: var(--line-strong);
+}
 .lang-chip {
   padding: 8px 4px;
   border: 1px solid var(--line);
@@ -158,7 +181,8 @@ const THEMES: { id: ThemeChoice; label: Key; icon: string }[] = [
   color: var(--ink-invert);
 }
 @media (max-width: 899px) {
-  .lang-chip {
+  .lang-chip,
+  .about-open {
     min-height: 44px;
     font-size: 13.5px;
   }

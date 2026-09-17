@@ -267,6 +267,7 @@ const it: Messages = {
   'settings.units': 'Unità',
   'settings.unitsNote': 'Sistema metrico: chilometri, metri, ore e minuti.',
   'settings.about': 'Informazioni',
+  'settings.aboutOpen': 'Fonti, limiti e codice sorgente',
   'settings.aboutNote':
     'Mappa, sentieri e impianti da OpenStreetMap. Sentieri segnalati e toponimi da SAT e Provincia di Trento. Quote dalle tile pubbliche Terrarium. I tempi di percorrenza seguono la regola dei club alpini: distanza e dislivello contati insieme, dimezzando il minore dei due.',
 
