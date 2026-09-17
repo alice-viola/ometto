@@ -3,8 +3,8 @@ import { computed, nextTick, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import BrandMark from './BrandMark.vue';
 import SearchBlock from './SearchBlock.vue';
-import ModeSelect from './ModeSelect.vue';
-import GradeSelect from './GradeSelect.vue';
+import ModeBar from './ModeBar.vue';
+import TripOptions from './TripOptions.vue';
 import ResultsBlock from './ResultsBlock.vue';
 import HistoryView from './HistoryView.vue';
 import FavouritesView from './FavouritesView.vue';
@@ -18,8 +18,6 @@ import {
   busy,
   canCompute,
   compute,
-  lifts,
-  mode,
   status,
 } from '../composables/usePlanner';
 import { isDark, useTheme } from '../composables/useTheme';
@@ -32,7 +30,10 @@ type View = 'plan' | 'history' | 'favourites' | 'saved' | 'settings' | 'about';
 const view = ref<View>('plan');
 const { toggle } = useTheme();
 
-const walks = computed(() => mode.value.includes('hike'));
+/** The grade and the lifts, opened from the mode bar's badge; leaving the plan closes them. */
+const tripOptions = ref(false);
+watch(view, () => (tripOptions.value = false));
+
 const three = computed({
   get: () => alternatives.value === 3,
   set: (v: boolean) => (alternatives.value = v ? 3 : 1),
@@ -173,26 +174,26 @@ watch(answeredToken, async () => {
       <template v-if="view === 'plan'">
         <SearchBlock />
 
-        <h2 class="label mt-5 mb-2">{{ t('panel.mode') }}</h2>
-        <ModeSelect />
+        <!-- The phone's row: the mode as five icons, and the grade as a badge
+             whose grades and lifts open in a popover under it. -->
+        <div class="relative mt-4">
+          <ModeBar :options-open="tripOptions" @options="tripOptions = true" />
+          <Transition name="pop">
+            <TripOptions
+              v-if="tripOptions"
+              variant="popover"
+              class="absolute inset-x-0 top-[52px] z-30"
+              @close="tripOptions = false"
+            />
+          </Transition>
+        </div>
 
-        <template v-if="walks">
-          <h2 class="label mt-4 mb-2">{{ t('panel.trailGrade') }}</h2>
-          <GradeSelect />
-        </template>
-
-        <div class="mt-2 border-t border-line">
-          <Toggle
-            v-if="walks"
-            v-model="lifts"
-            :label="t('panel.useLifts')"
-            :hint="t('panel.useLiftsHint')"
-          />
+        <div class="mt-1 border-t border-line">
           <Toggle v-model="three" :label="t('panel.showThree')" :hint="t('panel.showThreeHint')" />
         </div>
 
         <button
-          class="btn-primary mt-3 flex w-full items-center justify-center gap-2 px-4 py-3 text-[14px]"
+          class="btn-primary compute mt-3 flex h-9 w-full items-center justify-center gap-2 px-4 text-[13px]"
           :aria-label="status === 'loading' ? t('panel.computingAria') : t('panel.compute')"
           :disabled="!canCompute || busy"
           @click="compute()"
@@ -251,6 +252,22 @@ watch(answeredToken, async () => {
 .nav-btn.is-on {
   background: var(--surface-3);
   color: var(--ink);
+}
+/* Nothing to ask yet: a quiet outline rather than a grey slab of ink. */
+.compute:disabled {
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--faint);
+  opacity: 1;
+}
+.pop-enter-active,
+.pop-leave-active {
+  transition: opacity 0.14s ease, transform 0.14s ease;
+}
+.pop-enter-from,
+.pop-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 /* A thumb, not a cursor: the icon stays 16 px, the target grows to 44. */
 @media (max-width: 899px) {

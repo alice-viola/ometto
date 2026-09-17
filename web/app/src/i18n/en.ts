@@ -159,6 +159,12 @@ export default {
   'map.markerAria': '{what}: {name}. Drag to move.',
   'map.droppedPoint': 'dropped point',
   'map.crag': 'Crag',
+  'map.layers': 'Map layers',
+  'map.chip.terrain': '3D',
+  'map.chip.pois': 'Peaks',
+  'map.chip.sat': 'Trails',
+  'map.chip.crags': 'Crags',
+  'map.chip.lifts': 'Lifts',
 
   'popover.actions': 'Point actions',
   'popover.locating': 'Locating…',

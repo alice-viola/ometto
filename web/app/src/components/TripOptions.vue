@@ -1,35 +1,76 @@
 <script setup lang="ts">
-import Icon from '../Icon.vue';
-import Toggle from '../Toggle.vue';
-import { GRADES, gradeDesc, gradeName } from '../../lib/format';
-import { grade, lifts } from '../../composables/usePlanner';
-import { t } from '../../i18n';
+import { onBeforeUnmount, onMounted, ref } from 'vue';
+import Icon from './Icon.vue';
+import Toggle from './Toggle.vue';
+import { GRADES, gradeDesc, gradeName } from '../lib/format';
+import { grade, lifts } from '../composables/usePlanner';
+import { t } from '../i18n';
 
 /**
  * The walking part of the question, asked when it is wanted rather than shown
  * always: the grade you will walk at, with the words that say what each one
  * asks of you — a strip of five letters never had the room for those — and
- * whether a lift may be ridden. A sheet from the bottom, where the thumb is.
+ * whether a lift may be ridden. On a phone a sheet from the bottom, where the
+ * thumb is; on a desktop a popover under the badge, placed by the caller.
  */
+const props = withDefaults(defineProps<{ variant?: 'sheet' | 'popover' }>(), { variant: 'sheet' });
 const emit = defineEmits<{ close: [] }>();
 
 /** The catalogue's descriptions follow a dash; on a line of their own they start a sentence. */
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+/**
+ * Escape closes it and is spent doing so: on a desktop the same key would
+ * otherwise fold the whole panel away. Captured, so it is heard first.
+ */
+function onKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Escape' && e.key !== 'Esc') return;
+  e.preventDefault();
+  emit('close');
+}
+
+/** The popover takes the focus to the grade it shows, so the arrows and Tab start there. */
+const group = ref<HTMLElement | null>(null);
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown, true);
+  if (props.variant === 'popover') group.value?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
+});
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown, true));
 </script>
 
 <template>
-  <div class="fixed inset-0 z-40" role="dialog" aria-modal="true" :aria-label="t('top.tripOptions')">
-    <button type="button" class="absolute inset-0" style="background: rgb(0 0 0 / 0.45)" :aria-label="t('popover.close')" @click="emit('close')" />
+  <div
+    :class="variant === 'sheet' ? 'fixed inset-0 z-40' : ''"
+    role="dialog"
+    :aria-modal="variant === 'sheet' ? 'true' : undefined"
+    :aria-label="t('top.tripOptions')"
+  >
+    <!-- The sheet dims the map behind it; the popover closes, unseen, on a click anywhere else. -->
+    <button
+      type="button"
+      :class="variant === 'sheet' ? 'absolute inset-0' : 'fixed inset-0 cursor-default'"
+      :style="variant === 'sheet' ? 'background: rgb(0 0 0 / 0.45)' : undefined"
+      :aria-label="t('popover.close')"
+      :tabindex="variant === 'sheet' ? undefined : -1"
+      @click="emit('close')"
+    />
     <div
-      class="sheet card absolute inset-x-0 bottom-0 rounded-b-none rounded-t-[18px] border-b-0"
-      :style="{ boxShadow: 'var(--shadow-2)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }"
+      :class="
+        variant === 'sheet'
+          ? 'sheet card absolute inset-x-0 bottom-0 rounded-b-none rounded-t-[18px] border-b-0'
+          : 'card is-popover relative overflow-hidden'
+      "
+      :style="{
+        boxShadow: 'var(--shadow-2)',
+        paddingBottom: variant === 'sheet' ? 'env(safe-area-inset-bottom, 0px)' : undefined,
+      }"
     >
       <div class="flex items-center gap-2 px-4 pt-3 pb-1">
         <h2 class="label flex-1">{{ t('panel.trailGrade') }}</h2>
         <button type="button" class="btn-quiet -my-2 px-3 text-[13px]" @click="emit('close')">{{ t('card.done') }}</button>
       </div>
 
-      <div role="radiogroup" :aria-label="t('top.gradeGroup')">
+      <div ref="group" role="radiogroup" :aria-label="t('top.gradeGroup')">
         <button
           v-for="g in GRADES"
           :key="g"
@@ -84,6 +125,16 @@ const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 }
 .grade-row:active {
   background: var(--surface-2);
+}
+@media (hover: hover) {
+  .grade-row:hover:not(.is-on) {
+    background: var(--surface-2);
+  }
+}
+/* A pointer needs less than a thumb: the popover keeps the lifts in view on a short window. */
+.is-popover .grade-row {
+  min-height: 48px;
+  padding-block: 5px;
 }
 .grade-mark {
   display: flex;

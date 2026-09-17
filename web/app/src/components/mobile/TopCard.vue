@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import Icon from '../Icon.vue';
-import TripOptions from './TripOptions.vue';
-import { gradeName, modeLabel } from '../../lib/format';
-import type { Mode } from '../../lib/types';
+import ModeBar from '../ModeBar.vue';
+import TripOptions from '../TripOptions.vue';
 import {
   MAX_POINTS,
   addStop,
@@ -15,7 +14,6 @@ import {
   grade,
   hasResult,
   isCombinedMode,
-  lifts,
   mode,
   parkingIndex,
   placeIndices,
@@ -42,7 +40,6 @@ import { wayName } from '../../i18n/service';
  */
 const emit = defineEmits<{ edit: [index: number]; menu: [] }>();
 
-const MODES: Mode[] = ['car', 'bike', 'hike', 'car+hike', 'bike+hike'];
 const walks = computed(() => mode.value.includes('hike'));
 
 const places = computed(() =>
@@ -141,19 +138,6 @@ function onCancel() {
 
 /** The names, in order, for the folded line. */
 const names = computed(() => places.value.map((p) => wayName(p.slot.point?.name) || label(p.at, p.index)));
-
-/**
- * The line under the icons says what the icons chose, in words — and, when
- * the trip walks, at what grade and whether a lift may be taken.
- */
-const caption = computed(() => {
-  const parts = [modeLabel(mode.value)];
-  if (walks.value) {
-    parts.push(`${gradeName(grade.value)} (${grade.value})`);
-    parts.push(lifts.value ? t('top.liftsOn') : t('top.liftsOff'));
-  }
-  return parts.join(' · ');
-});
 
 /** The map needs to know how much of its top this covers, folded or not. */
 const root = ref<HTMLElement | null>(null);
@@ -296,42 +280,8 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <!-- The mode as icons, in one row that never scrolls; the words are on
-             the line below. Walking, the grade sits beside the row as a badge
-             that opens the grade and the lifts. -->
         <div class="border-t border-line px-3 pt-2">
-          <div class="flex items-center gap-1.5">
-            <div class="seg" role="radiogroup" :aria-label="t('top.travelMode')">
-              <button
-                v-for="m in MODES"
-                :key="m"
-                type="button"
-                role="radio"
-                class="seg-item"
-                :class="mode === m ? 'is-on' : ''"
-                :aria-checked="mode === m"
-                :aria-label="modeLabel(m)"
-                @click="mode = m"
-              >
-                <Icon v-for="(ic, i) in m.split('+')" :key="i" :name="ic" :size="17" />
-              </button>
-            </div>
-            <button
-              v-if="walks"
-              type="button"
-              class="grade-badge"
-              :style="{ '--g': `var(--grade-${grade.toLowerCase()})` }"
-              :aria-label="t('top.optionsAria', { mode: modeLabel(mode), grade })"
-              @click="options = true"
-            >
-              <span class="flex items-center gap-0.5">
-                <Icon v-if="grade === 'A'" name="warning" :size="11" :width="2" />
-                <span class="font-semibold">{{ grade }}</span>
-              </span>
-              <span class="bar-g" aria-hidden="true" />
-            </button>
-          </div>
-          <p class="truncate px-1 pt-1.5 pb-1 text-[11.5px] leading-snug text-muted">{{ caption }}</p>
+          <ModeBar :options-open="options" @options="options = true" />
         </div>
 
         <!-- The bar and the chevron, as the answer sheet has them: pull up or
@@ -455,59 +405,6 @@ onBeforeUnmount(() => {
 }
 .ctl-primary:disabled {
   opacity: 0.3;
-}
-
-/* Five icons in one well; the chosen one is the inked one. */
-.seg {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  gap: 3px;
-  padding: 3px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface-2);
-}
-.seg-item {
-  display: flex;
-  flex: 1 1 0;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  min-width: 0;
-  height: 38px;
-  border-radius: 9px;
-  color: var(--muted);
-  transition: background 0.14s ease, color 0.14s ease;
-}
-.seg-item.is-on {
-  background: var(--ink);
-  color: var(--ink-invert);
-}
-/* The grade, as the strip drew it, now one chip that opens the choice. */
-.grade-badge {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  width: 46px;
-  height: 46px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface);
-  color: var(--ink);
-  font-size: 12.5px;
-}
-.grade-badge:active {
-  background: var(--surface-3);
-}
-.bar-g {
-  width: 20px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--g);
 }
 
 .top-enter-active,

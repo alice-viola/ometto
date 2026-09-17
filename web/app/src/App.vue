@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import MapCanvas from './components/MapCanvas.vue';
+import MapLayerChips from './components/MapLayerChips.vue';
 import Panel from './components/Panel.vue';
 import MobileShell from './components/mobile/MobileShell.vue';
 import OfflineView from './components/OfflineView.vue';
@@ -91,17 +92,24 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
       </aside>
       <main class="relative min-w-0 flex-1">
         <MapCanvas />
-        <button
-          v-if="!isCompact && panelHidden"
-          class="absolute left-3 top-3 z-20 flex items-center gap-1.5 rounded-[9px] border border-line px-2.5 py-2 text-[12.5px] text-ink transition-colors hover:border-line-strong"
-          :style="{ background: 'var(--surface)', boxShadow: 'var(--shadow-2)' }"
-          :aria-label="t('app.showPanel')"
-          :title="t('app.showPanelTitle')"
-          @click="panelHidden = false"
-        >
-          <Icon name="panelShow" :size="16" />
-          <span>{{ t('app.panel') }}</span>
-        </button>
+        <template v-if="!isCompact">
+          <button
+            v-if="panelHidden"
+            class="absolute left-3 top-3 z-20 flex h-8 items-center gap-1.5 rounded-[9px] border border-line px-2.5 text-[12.5px] text-ink transition-colors hover:border-line-strong"
+            :style="{ background: 'var(--surface)', boxShadow: 'var(--shadow-2)' }"
+            :aria-label="t('app.showPanel')"
+            :title="t('app.showPanelTitle')"
+            @click="panelHidden = false"
+          >
+            <Icon name="panelShow" :size="16" />
+            <span>{{ t('app.panel') }}</span>
+          </button>
+          <!-- The layers, centred along the top of the map; the side padding
+               keeps them clear of the zoom buttons and the panel's way back. -->
+          <div class="pointer-events-none absolute inset-x-0 top-3 z-20 flex justify-center px-24">
+            <MapLayerChips />
+          </div>
+        </template>
       </main>
     </div>
 
@@ -117,7 +125,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
     <div
       v-if="(!online || serviceDown || needRefresh) && !MOCK"
       class="pointer-events-none fixed inset-x-0 top-0 z-40 flex flex-col items-center gap-1.5 p-2.5"
-      style="padding-top: calc(10px + env(safe-area-inset-top))"
+      :style="{ paddingTop: isCompact ? 'calc(10px + env(safe-area-inset-top))' : '56px' }"
       role="status"
     >
       <p

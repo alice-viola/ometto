@@ -48,6 +48,8 @@ import { wayName } from '../i18n/service';
 const props = defineProps<{
   route: RouteAlternative;
   selected: boolean;
+  /** The details are showing: the chosen card, unless it was folded to its headline. */
+  open: boolean;
   best: number | null;
   index: number;
 }>();
@@ -286,11 +288,12 @@ async function saveFavourite() {
 <template>
   <article
     class="card overflow-hidden transition-colors"
-    :class="selected ? 'border-ink bg-surface' : 'bg-surface hover:border-line-strong'"
+    :class="selected ? 'is-selected bg-surface' : 'bg-surface hover:border-line-strong'"
   >
     <button
       class="w-full px-3 pt-2.5 pb-2.5 text-left"
       :aria-pressed="selected"
+      :aria-expanded="selected ? open : undefined"
       :aria-label="t('card.routeAria', { n: index + 1, duration: fmtDuration(route.seconds), distance: fmtDistance(route.meters) })"
       @click="emit('select')"
     >
@@ -313,6 +316,12 @@ async function saveFavourite() {
         >
           {{ route.grade }}
         </span>
+        <Icon
+          :name="open ? 'chevronUp' : 'chevronDown'"
+          :size="15"
+          class="ml-0.5 shrink-0 self-center text-faint"
+          aria-hidden="true"
+        />
       </div>
 
       <div class="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[12.5px] text-muted">
@@ -332,7 +341,7 @@ async function saveFavourite() {
       <p v-if="comp" class="mt-1 truncate text-[11.5px] text-faint">{{ comp }}</p>
     </button>
 
-    <div v-if="selected" class="border-t border-line px-3 pt-2.5 pb-3">
+    <div v-if="open" class="border-t border-line px-3 pt-2.5 pb-3">
       <!-- Not a caveat in a list: unmarked glacier ground is the first thing
            this card has to say. -->
       <div
@@ -480,3 +489,10 @@ async function saveFavourite() {
     </div>
   </article>
 </template>
+
+<style scoped>
+/* The chosen route: a tinted edge, not an ink ring. */
+.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+</style>

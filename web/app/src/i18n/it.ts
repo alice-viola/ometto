@@ -167,6 +167,12 @@ const it: Messages = {
   'map.markerAria': '{what}: {name}. Trascina per spostare.',
   'map.droppedPoint': 'punto sulla mappa',
   'map.crag': 'Falesia',
+  'map.layers': 'Livelli della mappa',
+  'map.chip.terrain': '3D',
+  'map.chip.pois': 'Cime',
+  'map.chip.sat': 'Sentieri',
+  'map.chip.crags': 'Falesie',
+  'map.chip.lifts': 'Impianti',
 
   'popover.actions': 'Azioni sul punto',
   'popover.locating': 'Individuazione…',

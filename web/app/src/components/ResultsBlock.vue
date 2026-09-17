@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import Icon from './Icon.vue';
 import LiveCard from './LiveCard.vue';
 import ResultCard from './ResultCard.vue';
 import EmptyState from './EmptyState.vue';
 import {
+  answeredToken,
   compute,
   degraded,
   errorText,
@@ -26,6 +27,20 @@ import { t } from '../i18n';
 
 const best = computed(() => (routes.value.length > 1 ? routes.value[0].seconds : null));
 const walks = computed(() => mode.value.includes('hike'));
+
+/**
+ * The chosen card folds to its headline like the others: pressing its header
+ * again folds or opens it. Choosing another route opens that one, and so does
+ * a new question; a quiet re-run leaves the card as it was.
+ */
+const folded = ref(false);
+const chosenId = computed(() => selectedId.value ?? routes.value[0]?.id);
+watch([selectedId, answeredToken], () => (folded.value = false));
+
+function onSelect(id: string) {
+  if (id === chosenId.value) folded.value = !folded.value;
+  else selectRoute(id);
+}
 
 /** A point the service could not reach the network from, if there is one. */
 const farPoint = computed(() => {
@@ -131,8 +146,9 @@ function allowNeeded() {
         :route="r"
         :index="i"
         :best="best"
-        :selected="r.id === (selectedId ?? routes[0].id)"
-        @select="selectRoute(r.id)"
+        :selected="r.id === chosenId"
+        :open="r.id === chosenId && !folded"
+        @select="onSelect(r.id)"
       />
     </div>
 
