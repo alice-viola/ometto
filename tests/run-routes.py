@@ -12,6 +12,8 @@ distinctness, grade T vs EEA, and 20 concurrent requests.
     python3 tests/run-routes.py --json out.json     # machine-readable results
 
 Verdicts follow the brief: within 15% = pass, 15-30% = check, over 30% = fail.
+A route refused at its own grade and answered only at a harder one is at best a
+check, however well that answer scores.
 Hiking times in the model and in the SAT references follow the Alpine club
 rule (4 km/h flat, 400 m/h up, 800 m/h down); Komoot references are faster,
 which routes.json records per route in reference.scale.
@@ -392,6 +394,11 @@ def run_one(base, r, timeout=120):
         out["ref_shown"] = {"km": ref.get("km"), "minutes": ref.get("minutes"),
                             "ascent": ref.get("ascent")}
     out["verdict"], out["worst"] = verdict_of([out["d_min"], out["d_km"], out["d_asc"]])
+    # The retry is scored so the numbers stay comparable, but the route was
+    # refused at the grade it is walked at: brentei read "pass" for three days
+    # while everyone asking for Rifugio Brentei at EE was told no.
+    if out.get("retried_at") and out["verdict"] == PASS:
+        out["verdict"] = CHECK
     hits, misses = landmark_hits(br, ref.get("landmarks"))
     out["landmark_hits"] = hits
     out["landmark_misses"] = misses

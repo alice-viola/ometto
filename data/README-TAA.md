@@ -203,14 +203,15 @@ otherwise be skipped as "already there" forever.
 
    | field | meaning | count |
    |---|---|---|
-   | `sat` | the SAT grade, one of `T`, `E`, `EE`, `EEA` | 21,879 stretches (T 542, E 17,189, EE 3,163, EEA 985) |
+   | `sat` | the SAT grade, one of `T`, `E`, `EE`, `EEA` | 21,677 stretches (T 542, E 17,096, EE 3,101, EEA 938); the other 202 joined ones are at a trail's end |
    | `satno` | the catalogue number, with its zone letter (`E518`, `O223`) | 21,879 |
    | `satname` | the catalogue name, when the trail has one | 9,678 |
 
    `sat` is the Province's own grade and is worth more than `s` (the OSM
    `sac_scale`): it is surveyed, it exists where `sac_scale` does not, and the
-   two disagree in both directions. `EEA` means equipped or via ferrata; the
-   sub-grade (`EEA-F` to `EEA-E`) is not on the stretch, it is in
+   two disagree in both directions. The one place the join defers to `s` is a
+   trail's two ends (see "The SAT join" below). `EEA` means equipped or via
+   ferrata; the sub-grade (`EEA-F` to `EEA-E`) is not on the stretch, it is in
    `sat.geojson` as `grade_raw`. Note that `sat` says nothing about whether the
    stretch is a via ferrata: `v` still does that.
 
@@ -328,6 +329,21 @@ Sentiero Italia, the Alte Vie, which OSM stamps instead of the number) at a
 much tighter tolerance, 95% of points within 30 m, and only for stretches that
 are already on a marked route. It added 3,509 stretches. Drop the flag to get
 the number-only join.
+
+**At a trail's two ends the OSM grade stands.** The catalogue grades a trail,
+not each metre of it, and a via ferrata is EEA from its first step, which is
+often the path outside a hut. The Bogani (O318, EE) ends at a junction 73 m
+short of Rifugio Brentei; the ferratas O318A and O327 start there and share the
+81 m past the hut, so those 81 m came out EEA and the hut itself was refused at
+EE, although OSM tags that path `sac_scale=demanding_mountain_hiking` (T3). So a
+stretch lying wholly within 100 m of the first or last point of a catalogue
+line at least 500 m long keeps `satno` and `satname` but gets no `sat` when OSM
+grades it lower (`s` from 1 to one below the catalogue's grade) and does not
+tag it a via ferrata (`v`); the router then reads `s`. An untagged way (`s` 0)
+keeps the catalogue's grade: the router would read 0 as no grade at all. On the
+2026-09-13 extract that is 202 stretches (E 93, EE 62, EEA 47), and no trail
+loses every graded stretch, which is what the 500 m floor is for: the 170 m
+Segata ferrata (F07) would.
 
 | | |
 |---|---|

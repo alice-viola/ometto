@@ -30,6 +30,11 @@ Writes three fields on every stretch that matched -- "sat" (T/E/EE/EEA),
 "satno" (the catalogue number), "satname" (the catalogue name, when it has one)
 -- back into the map file, and the catalogue's own lines to a GeoJSON the page
 can draw. Every other byte of the map file is left exactly as it was.
+
+"sat" is left off at a trail's two ends where OSM grades the way lower and does
+not tag it a via ferrata: the catalogue grades a whole trail, and a ferrata's
+EEA would otherwise cover the path outside the hut it starts from (see
+at_trail_end).
 """
 import json
 import math
@@ -49,6 +54,15 @@ from utm32 import to_lonlat
 
 GRADES = ("T", "E", "EE", "EEA")
 
+# A catalogue grade is a whole trail's, and a via ferrata is EEA from its first
+# metre -- which is often the path outside a hut. The Bogani (O318, EE) ends at
+# a junction 73 m short of Rifugio Brentei, the ferratas O318A and O327 start
+# there, and the 81 m they share past the hut came out EEA: the hut was refused
+# at EE, though OSM tags that path T3. Near a trail's ends the way's own OSM
+# grade stands when it is lower; see at_trail_end.
+TRAIL_END_M = 100.0  # every point of the stretch within this of the line's end
+MIN_TRAIL_M = 500.0  # a shorter line is all ends: the 170 m Segata ferrata (F07)
+                     # would lose its grade outright
 
 
 def open_shp(base):
@@ -95,6 +109,21 @@ def grade_of(raw):
     """EEA-PD and friends are via ferrata sub-grades; the field wants EEA."""
     g = (raw or "").strip().upper().split("-")[0]
     return g if g in GRADES else ""
+
+
+def at_trail_end(road, t, px, py):
+    """Whether this stretch keeps OSM's grade instead of trail t's.
+
+    Only at the trail's two ends (every point within TRAIL_END_M of the line's
+    first or last point, on a line of MIN_TRAIL_M or more); only where OSM grades
+    the way lower -- a sac_scale below the catalogue's grade, never an untagged
+    way, which the router would read as no grade at all; and never on a via
+    ferrata. The router compares sac_scale 1-6 on the scale T=1 ... EEA=4.
+    """
+    grade = GRADES.index(t["grade"]) + 1 if t["grade"] else 0
+    if road.get("v") or not 1 <= road.get("s", 0) < grade or t["line_m"] < MIN_TRAIL_M:
+        return False
+    return any(float(np.hypot(px - x, py - y).max()) <= TRAIL_END_M for x, y in t["ends"])
 
 
 def minutes(raw):
@@ -240,6 +269,9 @@ def main(argv):
             "x0": x0s, "y0": y0s, "x1": x1s, "y1": y1s,
             "bbox": (min(x0s.min(), x1s.min()), min(y0s.min(), y1s.min()),
                      max(x0s.max(), x1s.max()), max(y0s.max(), y1s.max())),
+            "ends": ((sx[segs[0][0]], sy[segs[0][0]]),
+                     (sx[segs[-1][1] - 1], sy[segs[-1][1] - 1])),
+            "line_m": float(np.hypot(x1s - x0s, y1s - y0s).sum()),
             "hits": 0, "hit_m": 0.0,
         }
         trails.append(t)
@@ -253,8 +285,10 @@ def main(argv):
     stats = {"no_hr": 0, "no_key": 0, "no_candidate": 0, "too_far": 0, "joined": 0}
     best_frac_hist = []
     graded = defaultdict(int)
+    at_end = defaultdict(int)  # stretches left to OSM's grade, by the trail's grade
+    by_number = set()          # stretches the number join gave a graded trail
     t_join = time.time()
-    for road in roads:
+    for ri, road in enumerate(roads):
         hr = road.get("hr")
         if not hr:
             stats["no_hr"] += 1
@@ -297,8 +331,13 @@ def main(argv):
             continue
         t = trails[best[2]]
         if t["grade"]:
-            road["sat"] = t["grade"]
-            graded[t["grade"]] += 1
+            by_number.add(ri)
+            if at_trail_end(road, t, px, py):
+                road.pop("sat", None)  # a map joined before carries it
+                at_end[t["grade"]] += 1
+            else:
+                road["sat"] = t["grade"]
+                graded[t["grade"]] += 1
         if t["numero"]:
             road["satno"] = t["numero"]
         if t["name"]:
@@ -318,8 +357,10 @@ def main(argv):
             for cx, cy in set(zip(gx.tolist(), gy.tolist())):
                 grid[(cx, cy)].append(ti)
         added = 0
-        for road in roads:
-            if "sat" in road or not road.get("hr"):
+        for ri, road in enumerate(roads):
+            # Not `"sat" in road`: on a map joined before, that is also this
+            # pass's own earlier answer, which then could never change.
+            if ri in by_number or not road.get("hr"):
                 continue
             p = road["p"]
             px = pts[p, 0]
@@ -349,13 +390,17 @@ def main(argv):
             if best is None:
                 continue
             t = trails[best[2]]
-            road["sat"] = t["grade"]
+            if at_trail_end(road, t, px, py):
+                road.pop("sat", None)
+                at_end[t["grade"]] += 1
+            else:
+                road["sat"] = t["grade"]
+                graded[t["grade"]] += 1
             if t["numero"]:
                 road["satno"] = t["numero"]
             if t["name"]:
                 road["satname"] = t["name"]
             t["hits"] += 1
-            graded[t["grade"]] += 1
             added += 1
         stats["geometry"] = added
         stats["joined"] += added
@@ -379,6 +424,11 @@ def main(argv):
           f" {100.0*stats['joined']/max(len(roads),1):.1f}% of all stretches)")
     print(f"  of those, with a SAT grade      {sum(graded.values())}  "
           + ", ".join(f"{g} {graded[g]}" for g in GRADES if graded[g]))
+    if at_end:
+        print(f"  ... OSM's grade kept at an end  {sum(at_end.values())}  "
+              + ", ".join(f"{g} {at_end[g]}" for g in GRADES if at_end[g])
+              + f"  (within {TRAIL_END_M:.0f} m of the end of a line of"
+              f" {MIN_TRAIL_M:.0f} m or more)")
     if len(hist):
         for f in (1.0, 0.9, 0.8, 0.5):
             print(f"    at frac >= {f:.1f}: {int((hist >= f).sum())} stretches would join")
